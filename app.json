@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "УУСТР Журнал",
+    "slug": "uust-journal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "backgroundColor": "#0d1b2a",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ru.uust.journal",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "ru.uust.journal",
+      "adaptiveIcon": {
+        "backgroundColor": "#0d1b2a"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2e71a213-e144-4cc3-b654-6375dcc9d7d0"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2e71a213-e144-4cc3-b654-6375dcc9d7d0"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "owner": "exile34"
+  }
+}
