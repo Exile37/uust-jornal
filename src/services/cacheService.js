@@ -1,48 +1,55 @@
-// =========================
-// CACHE SERVICE
-// Кэширование данных в AsyncStorage
-// =========================
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
+export const cacheService = {
+  /**
+   * Получение сохраненных данных из AsyncStorage
+   */
+  async getLocal(key) {
+    try {
+      const jsonValue = await AsyncStorage.getItem(key);
+      return jsonValue != null ? JSON.parse(jsonValue) : null;
+    } catch (e) {
+      console.error(`[CacheError] Ошибка чтения ключа ${key}:`, e);
+      return null;
+    }
+  },
 
-export async function saveCache(key, data) {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify({
-      data,
-      timestamp: Date.now(),
-    }));
-  } catch (e) {
-    console.log('Cache save error:', e);
+  /**
+   * Сохранение данных в AsyncStorage
+   */
+  async setLocal(key, value) {
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error(`[CacheError] Ошибка записи ключа ${key}:`, e);
+    }
+  },
+
+  /**
+   * Стратегия Stale-While-Revalidate:
+   * 1. Мгновенно возвращает кэшированные данные через callback (onData).
+   * 2. Выполняет сетевой запрос (fetcher).
+   * 3. Обновляет кэш и вызывает callback с новыми данными.
+   */
+  async fetchWithCache(key, fetcher, onData) {
+    // 1. Отдаем локальный кэш мгновенно
+    const cachedData = await this.getLocal(key);
+    if (cachedData && onData) {
+      onData(cachedData);
+    }
+
+    // 2. Подтягиваем свежие данные из сети
+    try {
+      const freshData = await fetcher();
+      await this.setLocal(key, freshData);
+      if (onData) {
+        onData(freshData);
+      }
+      return freshData;
+    } catch (error) {
+      console.warn(`[CacheWarning] Не удалось обновить ${key} с сервера. Использован кэш.`, error);
+      if (!cachedData) throw error;
+      return cachedData;
+    }
   }
-}
-
-export async function loadCache(key) {
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    if (!raw) return null;
-    const { data, timestamp } = JSON.parse(raw);
-    const age = Date.now() - timestamp;
-    return {
-      data,
-      isStale: age > CACHE_TTL,
-      age: Math.floor(age / 60000), // минуты
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-export async function clearCache() {
-  try {
-    const keys = await AsyncStorage.getAllKeys();
-    const cacheKeys = keys.filter(k => k.startsWith('cache_'));
-    await AsyncStorage.multiRemove(cacheKeys);
-  } catch (e) {
-    console.log('Cache clear error:', e);
-  }
-}
-
-export function cacheKey(type, id = '') {
-  return `cache_${type}_${id}`;
-}
+};

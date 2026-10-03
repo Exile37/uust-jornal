@@ -1,40 +1,33 @@
 {
   "expo": {
-    "name": "УУСТР Журнал",
-    "slug": "uust-journal",
-    "version": "1.0.0",
+    "name": "uust-app",
+    "slug": "uust-app",
+    "version": "1.1.0",
     "orientation": "portrait",
-    "backgroundColor": "#0d1b2a",
+    "userInterfaceStyle": "light",
+    "jsEngine": "hermes",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "ru.uust.journal",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+      "supportsTablet": true,
+      "jsEngine": "hermes"
     },
     "android": {
-      "package": "ru.uust.journal",
       "adaptiveIcon": {
-        "backgroundColor": "#0d1b2a"
-      }
-    },
-    "web": {
-      "bundler": "metro"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "2e71a213-e144-4cc3-b654-6375dcc9d7d0"
-      }
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/2e71a213-e144-4cc3-b654-6375dcc9d7d0"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "jsEngine": "hermes"
     },
     "plugins": [
-      "expo-secure-store"
-    ],
-    "owner": "exile34"
+      "expo-secure-store",
+      "expo-status-bar"
+    ]
   }
 }
