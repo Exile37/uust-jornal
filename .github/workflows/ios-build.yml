@@ -26,6 +26,8 @@ jobs:
           xcodebuild -version
       - name: Install JS dependencies
         run: npm install --no-audit --no-fund
+      - name: Fix executable bits
+        run: chmod +x node_modules/.bin/* || true
       - name: Generate native iOS project
         run: npx expo prebuild --platform ios --no-install --clean
       - name: Install CocoaPods
