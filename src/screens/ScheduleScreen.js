@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, TextInput, FlatList, Modal, Alert,
+  ActivityIndicator, TextInput, FlatList, Modal, Alert, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/scheduleService';
@@ -136,6 +136,21 @@ export default function ScheduleScreen() {
 
   function changeWeek(delta) {
     loadSchedule(selectedGroup.id, week + delta);
+  }
+
+  async function shareDay() {
+    const day = schedule?.[selectedDay];
+    const lines = [
+      `Расписание${selectedGroup ? ` · ${selectedGroup.name}` : ''}`,
+      weekHeader,
+      day?.header || '',
+    ].filter(Boolean);
+    if (day?.lessons?.length) {
+      day.lessons.forEach((l) => lines.push(`${l.time}  ${l.subject}${l.room ? `  ·  каб. ${l.room}` : ''}`));
+    } else {
+      lines.push('Занятий нет');
+    }
+    try { await Share.share({ message: lines.join('\n') }); } catch (e) {}
   }
 
   const currentDay = schedule?.[selectedDay];

@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchSubjects, fetchGrades } from '../services/subjectsService';
 import { fetchSchedule } from '../services/scheduleService';
+import { syncLessonReminders } from '../services/notificationService';
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];

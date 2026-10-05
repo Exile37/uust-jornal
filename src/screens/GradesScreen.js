@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { fetchGrades } from '../services/subjectsService';
+import { notifyNewGrades } from '../services/notificationService';
 import OfflineBanner from '../components/OfflineBanner';
 
 const GradeItem = React.memo(({ item }) => {
@@ -38,6 +39,9 @@ export default function GradesScreen({ subject, onBack }) {
       setLessons(result.data || []);
       setFromCache(result.fromCache || false);
       setCacheAge(result.cacheAge ?? null);
+      if (!result.fromCache) {
+        notifyNewGrades(subject.url, subject.name, result.data || []).catch(() => {});
+      }
     } catch (e) {
       Alert.alert('Ошибка', e.message || 'Не удалось загрузить оценки');
     } finally {

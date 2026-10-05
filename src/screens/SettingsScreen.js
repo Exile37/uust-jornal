@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Switch, Ac
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearCache } from '../services/cacheService';
 import { clearBiometricCredentials, hasBiometricCredentials } from '../services/authService';
+import { fetchSchedule } from '../services/scheduleService';
+import { requestNotificationPermission, syncLessonReminders } from '../services/notificationService';
 
 export default function SettingsScreen({ onLogout, onOpenSchedule }) {
   const [group, setGroup] = useState('');
@@ -34,17 +36,34 @@ export default function SettingsScreen({ onLogout, onOpenSchedule }) {
     Alert.alert('Биометрия', 'Для включения снова войдите с логином и паролем — приложение предложит сохранить доступ.', [{ text: 'Понятно' }]);
   }
 
+  async function reschedule(enabled, mins) {
+    try {
+      const group = await AsyncStorage.getItem('savedGroupId');
+      if (!group) return;
+      const result = await fetchSchedule(group, 0);
+      await syncLessonReminders(result.data || [], mins, enabled);
+    } catch (e) {}
+  }
+
   async function toggleNotifications(value) {
     if (value) {
-      Alert.alert('Уведомления', 'Функция подготовлена в интерфейсе. Для системных уведомлений установите expo-notifications командой npm install expo-notifications и подключите сервис из src/services/notificationService.js.');
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert('Уведомления выключены', 'Разрешите уведомления в настройках iOS, чтобы получать напоминания о парах.');
+        setNotifications(false);
+        await AsyncStorage.setItem('settings_notifications', 'false');
+        return;
+      }
     }
     setNotifications(value);
     await AsyncStorage.setItem('settings_notifications', String(value));
+    await reschedule(value, minutes);
   }
 
   async function changeMinutes(next) {
     setMinutes(next);
     await AsyncStorage.setItem('settings_reminder_minutes', String(next));
+    await reschedule(notifications, next);
   }
 
   function handleClearCache() {
