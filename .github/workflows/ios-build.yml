@@ -25,9 +25,11 @@ jobs:
           sudo xcode-select -s "$NEWEST/Contents/Developer"
           xcodebuild -version
       - name: Install JS dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          rm -rf node_modules
+          npm install --no-audit --no-fund
       - name: Fix executable bits
-        run: chmod +x node_modules/.bin/* || true
+        run: find node_modules -type f \( -name "*.sh" -o -path "*/.bin/*" \) -exec chmod +x {} + || true
       - name: Generate native iOS project
         run: npx expo prebuild --platform ios --no-install --clean
       - name: Install CocoaPods
