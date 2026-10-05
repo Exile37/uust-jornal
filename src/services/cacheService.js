@@ -1,55 +1,68 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const PREFIX = 'uust:';
+
+export function cacheKey(...parts) {
+  return PREFIX + parts.filter(Boolean).join(':');
+}
+
+export async function saveCache(key, value) {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify({ data: value, savedAt: Date.now() }));
+  } catch (e) {
+    console.error(`[CacheError] Ошибка записи ключа ${key}:`, e);
+  }
+}
+
+export async function loadCache(key) {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (raw == null) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+      const age = parsed.savedAt ? Math.floor((Date.now() - parsed.savedAt) / 60000) : null;
+      return { data: parsed.data, age };
+    }
+    return { data: parsed, age: null };
+  } catch (e) {
+    console.error(`[CacheError] Ошибка чтения ключа ${key}:`, e);
+    return null;
+  }
+}
+
+export async function clearCache() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const ours = keys.filter((k) => k.startsWith(PREFIX));
+    if (ours.length) await AsyncStorage.multiRemove(ours);
+  } catch (e) {
+    console.error('[CacheError] Ошибка очистки кэша:', e);
+  }
+}
+
 export const cacheService = {
-  /**
-   * Получение сохраненных данных из AsyncStorage
-   */
   async getLocal(key) {
-    try {
-      const jsonValue = await AsyncStorage.getItem(key);
-      return jsonValue != null ? JSON.parse(jsonValue) : null;
-    } catch (e) {
-      console.error(`[CacheError] Ошибка чтения ключа ${key}:`, e);
-      return null;
-    }
+    const cached = await loadCache(key);
+    return cached ? cached.data : null;
   },
 
-  /**
-   * Сохранение данных в AsyncStorage
-   */
   async setLocal(key, value) {
-    try {
-      await AsyncStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-      console.error(`[CacheError] Ошибка записи ключа ${key}:`, e);
-    }
+    await saveCache(key, value);
   },
 
-  /**
-   * Стратегия Stale-While-Revalidate:
-   * 1. Мгновенно возвращает кэшированные данные через callback (onData).
-   * 2. Выполняет сетевой запрос (fetcher).
-   * 3. Обновляет кэш и вызывает callback с новыми данными.
-   */
   async fetchWithCache(key, fetcher, onData) {
-    // 1. Отдаем локальный кэш мгновенно
-    const cachedData = await this.getLocal(key);
-    if (cachedData && onData) {
-      onData(cachedData);
-    }
+    const cached = await loadCache(key);
+    if (cached && onData) onData(cached.data);
 
-    // 2. Подтягиваем свежие данные из сети
     try {
       const freshData = await fetcher();
-      await this.setLocal(key, freshData);
-      if (onData) {
-        onData(freshData);
-      }
+      await saveCache(key, freshData);
+      if (onData) onData(freshData);
       return freshData;
     } catch (error) {
       console.warn(`[CacheWarning] Не удалось обновить ${key} с сервера. Использован кэш.`, error);
-      if (!cachedData) throw error;
-      return cachedData;
+      if (!cached) throw error;
+      return cached.data;
     }
-  }
+  },
 };
