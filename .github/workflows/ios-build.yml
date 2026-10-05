@@ -1,0 +1,49 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'App.js'
+      - 'app.json'
+      - 'package.json'
+      - 'src/**'
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Select newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+      - name: Install JS dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --no-install --clean
+      - name: Install CocoaPods
+        run: cd ios && pod install --repo-update
+      - name: Build unsigned app
+        run: |
+          cd ios
+          xcodebuild -quiet -workspace uustapp.xcworkspace -scheme uustapp \
+            -configuration Release -sdk iphoneos -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH=$(find ios/build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          mkdir -p Payload && cp -R "$APP_PATH" Payload/
+          zip -qry uust-journal-unsigned.ipa Payload
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uust-journal-unsigned-ipa
+          path: uust-journal-unsigned.ipa
+          retention-days: 30
