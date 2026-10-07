@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/scheduleService';
+import LessonCountdown from '../components/LessonCountdown';
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -62,6 +63,7 @@ export default function ScheduleScreen() {
   const [weekHeader, setWeekHeader] = useState('');
   const [week, setWeek] = useState(0);
   const [selectedDay, setSelectedDay] = useState(0);
+  const [showCountdown, setShowCountdown] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [fromCache, setFromCache] = useState(false);
@@ -71,6 +73,9 @@ export default function ScheduleScreen() {
     loadGroups();
     const d = new Date().getDay();
     setSelectedDay(d === 0 ? 0 : Math.min(d - 1, 5));
+    AsyncStorage.getItem('settings_countdown').then((v) => {
+      if (v === 'false') setShowCountdown(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -138,6 +143,14 @@ export default function ScheduleScreen() {
     loadSchedule(selectedGroup.id, week + delta);
   }
 
+  function toggleCountdown() {
+    setShowCountdown((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem('settings_countdown', String(next));
+      return next;
+    });
+  }
+
   async function shareDay() {
     const day = schedule?.[selectedDay];
     const lines = [
@@ -161,9 +174,14 @@ export default function ScheduleScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Расписание</Text>
         {schedule ? (
-          <TouchableOpacity onPress={shareDay} style={styles.shareBtn}>
-            <Text style={styles.shareText}>Поделиться</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={toggleCountdown} style={[styles.shareBtn, showCountdown && styles.shareBtnActive]}>
+              <Text style={[styles.shareText, showCountdown && styles.shareTextActive]}>⏱ {showCountdown ? 'Вкл' : 'Выкл'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={shareDay} style={styles.shareBtn}>
+              <Text style={styles.shareText}>Поделиться</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
       </View>
 
@@ -241,6 +259,9 @@ export default function ScheduleScreen() {
           {/* Офлайн баннер */}
           <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
+          {/* Обратный отсчёт до пары */}
+          <LessonCountdown schedule={schedule} enabled={showCountdown} />
+
           {/* Дни недели */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysRow}>
             {DAYS_SHORT.map((day, i) => {
@@ -300,8 +321,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#e8f4fd' },
+  headerActions: { flexDirection: 'row', gap: 6 },
   shareBtn: { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#0d1b2a', borderRadius: 9, borderWidth: 1, borderColor: '#1e3a4f' },
+  shareBtnActive: { backgroundColor: '#1565c0', borderColor: '#1565c0' },
   shareText: { color: '#4fc3f7', fontSize: 12, fontWeight: '700' },
+  shareTextActive: { color: '#fff' },
   groupSelector: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     margin: 14, backgroundColor: '#132233', borderRadius: 12, padding: 14,

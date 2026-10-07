@@ -8,6 +8,7 @@ import { fetchSubjects, fetchGrades } from '../services/subjectsService';
 import { fetchSchedule } from '../services/scheduleService';
 import { syncLessonReminders } from '../services/notificationService';
 import { loadTasks, nextDeadline, daysUntil } from '../services/tasksService';
+import LessonCountdown from '../components/LessonCountdown';
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -119,6 +120,8 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
         </View>
 
         <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+
+        <LessonCountdown schedule={schedule} />
 
         <TouchableOpacity style={styles.hero} onPress={onOpenSchedule} activeOpacity={0.85}>
           <Text style={styles.heroLabel}>{next?.offset === 0 ? 'СЛЕДУЮЩАЯ ПАРА' : 'БЛИЖАЙШАЯ ПАРА'}</Text>

@@ -93,7 +93,7 @@ export default function SettingsScreen({ onLogout, onOpenSchedule }) {
       </View>
       {notifications && <View style={styles.card}>
         <View style={styles.flex}><Text style={styles.label}>За сколько минут</Text><Text style={styles.hint}>Время напоминания</Text></View>
-        <View style={styles.minutes}>{[10, 30, 60].map(n => <TouchableOpacity key={n} onPress={() => changeMinutes(n)} style={[styles.minute, minutes === n && styles.minuteActive]}><Text style={[styles.minuteText, minutes === n && styles.minuteTextActive]}>{n}</Text></TouchableOpacity>)}</View>
+        <View style={styles.minutes}>{[5, 10, 30, 60].map(n => <TouchableOpacity key={n} onPress={() => changeMinutes(n)} style={[styles.minute, minutes === n && styles.minuteActive]}><Text style={[styles.minuteText, minutes === n && styles.minuteTextActive]}>{n}</Text></TouchableOpacity>)}</View>
       </View>}
 
       <Text style={styles.section}>БЕЗОПАСНОСТЬ</Text>
@@ -106,7 +106,7 @@ export default function SettingsScreen({ onLogout, onOpenSchedule }) {
       <TouchableOpacity style={styles.action} onPress={handleClearCache}><Text style={styles.actionText}>Очистить офлайн-кэш</Text><Text style={styles.arrow}>›</Text></TouchableOpacity>
       <TouchableOpacity style={styles.actionDanger} onPress={onLogout}><Text style={styles.dangerText}>Выйти из аккаунта</Text></TouchableOpacity>
 
-      <Text style={styles.version}>УУСТР Журнал · 1.1.0</Text>
+      <Text style={styles.version}>УУСТР Журнал · 1.2.0</Text>
     </ScrollView>
   );
 }
