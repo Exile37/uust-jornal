@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, RefreshControl, TextInput,
 } from 'react-native';
-import { fetchSubjects } from '../services/subjectsService';
+import { fetchSubjects, peekSubjects } from '../services/subjectsService';
 import { logout } from '../services/authService';
 import OfflineBanner from '../components/OfflineBanner';
 
@@ -14,8 +14,21 @@ export default function SubjectsScreen({ onSelectSubject, onLogout }) {
   const [search, setSearch] = useState('');
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
+  // Сначала мгновенно показываем кэш прошлой сессии, затем обновляем в фоне.
   async function loadSubjects() {
+    try {
+      const cached = await peekSubjects();
+      if (cached) {
+        setSubjects(cached.data || []);
+        setFromCache(true);
+        setCacheAge(cached.cacheAge ?? null);
+        setLoading(false);
+      }
+    } catch (e) { /* кэш недоступен — просто идём в сеть */ }
+
+    setUpdating(true);
     try {
       const result = await fetchSubjects();
       setSubjects(result.data || []);
@@ -24,7 +37,7 @@ export default function SubjectsScreen({ onSelectSubject, onLogout }) {
     } catch (e) {
       if (e.message === 'auth') onLogout();
       else Alert.alert('Ошибка', e.message || 'Не удалось загрузить предметы');
-    } finally { setLoading(false); setRefreshing(false); }
+    } finally { setLoading(false); setRefreshing(false); setUpdating(false); }
   }
 
   useEffect(() => { loadSubjects(); }, []);
@@ -52,7 +65,10 @@ export default function SubjectsScreen({ onSelectSubject, onLogout }) {
       <View><Text style={styles.eyebrow}>ЖУРНАЛ</Text><Text style={styles.headerTitle}>Мои предметы</Text></View>
       <TouchableOpacity onPress={() => { logout(); onLogout(); }} style={styles.logoutBtn}><Text style={styles.logoutText}>Выйти</Text></TouchableOpacity>
     </View>
-    <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+    {updating && subjects.length > 0 ? (
+      <View style={styles.updatingBar}><ActivityIndicator size="small" color="#4fc3f7" /><Text style={styles.updatingText}>Обновляем данные…</Text></View>
+    ) : null}
+    <OfflineBanner fromCache={fromCache && !updating} cacheAge={cacheAge} />
     <View style={styles.searchWrap}><Text style={styles.searchIcon}>⌕</Text><TextInput value={search} onChangeText={setSearch} placeholder="Поиск предмета или преподавателя" placeholderTextColor="#65798d" style={styles.search} /></View>
     <FlatList
       data={filtered} keyExtractor={(item, i) => item.url || String(i)} renderItem={renderItem}
@@ -75,4 +91,5 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', alignItems: 'flex-start' }, subjectName: { flex: 1, fontSize: 15, fontWeight: '750', color: '#e8f4fd', lineHeight: 21 }, chevron: { color: '#4fc3f7', fontSize: 25, lineHeight: 20, marginLeft: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 11 }, badge: { backgroundColor: '#0d355c', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }, badgeText: { color: '#90caf9', fontSize: 11, fontWeight: '700' }, teacher: { color: '#8a9bb0', fontSize: 12, flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 }, loadingText: { color: '#8a9bb0', marginTop: 12, fontSize: 14 }, emptyTitle: { color: '#c8ddf0', fontSize: 15, fontWeight: '700' }, emptyText: { color: '#71859b', fontSize: 12, marginTop: 5 },
+  updatingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6 }, updatingText: { color: '#4fc3f7', fontSize: 12, fontWeight: '600' },
 });

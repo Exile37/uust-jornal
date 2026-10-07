@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, TextInput, FlatList, Modal, Alert,
+  ActivityIndicator, TextInput, FlatList, Modal, Alert, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/scheduleService';
+import { fetchGroups, fetchSchedule, fetchWeekHeader, peekGroups, peekSchedule } from '../services/scheduleService';
+import LessonCountdown from '../components/LessonCountdown';
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -62,7 +63,9 @@ export default function ScheduleScreen() {
   const [weekHeader, setWeekHeader] = useState('');
   const [week, setWeek] = useState(0);
   const [selectedDay, setSelectedDay] = useState(0);
+  const [showCountdown, setShowCountdown] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
@@ -71,6 +74,9 @@ export default function ScheduleScreen() {
     loadGroups();
     const d = new Date().getDay();
     setSelectedDay(d === 0 ? 0 : Math.min(d - 1, 5));
+    AsyncStorage.getItem('settings_countdown').then((v) => {
+      if (v === 'false') setShowCountdown(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -87,6 +93,16 @@ export default function ScheduleScreen() {
   }, [groups]);
 
   async function loadGroups() {
+    // Мгновенно показываем группы из кэша, свежие подгружаем в фоне.
+    try {
+      const cachedGroups = await peekGroups();
+      if (cachedGroups) {
+        setGroups(cachedGroups);
+        setFilteredGroups(cachedGroups);
+        setLoadingGroups(false);
+      }
+    } catch (e) { /* идём в сеть */ }
+
     setLoadingGroups(true);
     try {
       const data = await fetchGroups();
@@ -100,7 +116,23 @@ export default function ScheduleScreen() {
   }
 
   async function loadSchedule(groupId, w) {
-    setLoading(true);
+    // Сначала мгновенно показываем сохранённое расписание (без спиннера).
+    let hadCache = false;
+    try {
+      const cached = await peekSchedule(groupId, w);
+      if (cached) {
+        hadCache = true;
+        setSchedule(cached.data);
+        setFromCache(true);
+        setCacheAge(cached.cacheAge ?? null);
+        setWeek(w);
+        setLoading(false);
+      }
+    } catch (e) { /* идём в сеть */ }
+
+    // При наличии кэша не закрываем экран спиннером, а показываем лёгкий индикатор.
+    if (hadCache) setUpdating(true);
+    else setLoading(true);
     try {
       const [schedResult, header] = await Promise.all([
         fetchSchedule(groupId, w),
@@ -115,6 +147,7 @@ export default function ScheduleScreen() {
       Alert.alert('Ошибка', e.message);
     } finally {
       setLoading(false);
+      setUpdating(false);
     }
   }
 
@@ -138,6 +171,29 @@ export default function ScheduleScreen() {
     loadSchedule(selectedGroup.id, week + delta);
   }
 
+  function toggleCountdown() {
+    setShowCountdown((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem('settings_countdown', String(next));
+      return next;
+    });
+  }
+
+  async function shareDay() {
+    const day = schedule?.[selectedDay];
+    const lines = [
+      `Расписание${selectedGroup ? ` · ${selectedGroup.name}` : ''}`,
+      weekHeader,
+      day?.header || '',
+    ].filter(Boolean);
+    if (day?.lessons?.length) {
+      day.lessons.forEach((l) => lines.push(`${l.time}  ${l.subject}${l.room ? `  ·  каб. ${l.room}` : ''}`));
+    } else {
+      lines.push('Занятий нет');
+    }
+    try { await Share.share({ message: lines.join('\n') }); } catch (e) {}
+  }
+
   const currentDay = schedule?.[selectedDay];
 
   return (
@@ -145,6 +201,16 @@ export default function ScheduleScreen() {
       {/* Шапка */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Расписание</Text>
+        {schedule ? (
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={toggleCountdown} style={[styles.shareBtn, showCountdown && styles.shareBtnActive]}>
+              <Text style={[styles.shareText, showCountdown && styles.shareTextActive]}>⏱ {showCountdown ? 'Вкл' : 'Выкл'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={shareDay} style={styles.shareBtn}>
+              <Text style={styles.shareText}>Поделиться</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
 
       {/* Выбор группы */}
@@ -219,7 +285,13 @@ export default function ScheduleScreen() {
           </View>
 
           {/* Офлайн баннер */}
-          <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+          {updating ? (
+            <View style={styles.updatingBar}><ActivityIndicator size="small" color="#4fc3f7" /><Text style={styles.updatingText}>Обновляем данные…</Text></View>
+          ) : null}
+          <OfflineBanner fromCache={fromCache && !updating} cacheAge={cacheAge} />
+
+          {/* Обратный отсчёт до пары */}
+          <LessonCountdown schedule={schedule} enabled={showCountdown} />
 
           {/* Дни недели */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysRow}>
@@ -277,8 +349,14 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
     backgroundColor: '#132233', borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#e8f4fd' },
+  headerActions: { flexDirection: 'row', gap: 6 },
+  shareBtn: { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#0d1b2a', borderRadius: 9, borderWidth: 1, borderColor: '#1e3a4f' },
+  shareBtnActive: { backgroundColor: '#1565c0', borderColor: '#1565c0' },
+  shareText: { color: '#4fc3f7', fontSize: 12, fontWeight: '700' },
+  shareTextActive: { color: '#fff' },
   groupSelector: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     margin: 14, backgroundColor: '#132233', borderRadius: 12, padding: 14,
@@ -361,6 +439,7 @@ const styles = StyleSheet.create({
   emptySubText: { color: '#8a9bb0', fontSize: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#8a9bb0', marginTop: 12 },
+  updatingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6 }, updatingText: { color: '#4fc3f7', fontSize: 12, fontWeight: '600' },
   hintEmoji: { fontSize: 40, marginBottom: 12 },
   hintText: { color: '#8a9bb0', fontSize: 16 },
 });

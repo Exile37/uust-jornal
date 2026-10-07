@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { fetchGrades } from '../services/subjectsService';
+import { notifyNewGrades, setGradeBadge } from '../services/notificationService';
 import OfflineBanner from '../components/OfflineBanner';
 
 const GradeItem = React.memo(({ item }) => {
@@ -25,6 +26,7 @@ const GradeItem = React.memo(({ item }) => {
 export default function GradesScreen({ subject, onBack }) {
   const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
 
@@ -33,15 +35,31 @@ export default function GradesScreen({ subject, onBack }) {
       setLoading(false);
       return;
     }
+    // Сначала мгновенно показываем сохранённые оценки, затем обновляем в фоне.
+    try {
+      const cached = await fetchGrades(subject.url, { cacheOnly: true });
+      setLessons(cached.data || []);
+      setFromCache(true);
+      setCacheAge(cached.cacheAge ?? null);
+      setLoading(false);
+    } catch (e) { /* кэша нет — ждём сеть */ }
+
+    setUpdating(true);
     try {
       const result = await fetchGrades(subject.url);
       setLessons(result.data || []);
       setFromCache(result.fromCache || false);
       setCacheAge(result.cacheAge ?? null);
+      if (!result.fromCache) {
+        notifyNewGrades(subject.url, subject.name, result.data || [])
+          .then((n) => { if (n > 0) setGradeBadge(n); })
+          .catch(() => {});
+      }
     } catch (e) {
-      Alert.alert('Ошибка', e.message || 'Не удалось загрузить оценки');
+      if (e.message !== 'no-cache') Alert.alert('Ошибка', e.message || 'Не удалось загрузить оценки');
     } finally {
       setLoading(false);
+      setUpdating(false);
     }
   }, [subject]);
 
@@ -74,7 +92,10 @@ export default function GradesScreen({ subject, onBack }) {
         <View style={styles.statCard}><Text style={styles.statValue}>{lessons.length}</Text><Text style={styles.statLabel}>ЗАНЯТИЙ</Text></View>
       </View>
 
-      <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+      {updating && lessons.length > 0 ? (
+        <View style={styles.updatingBar}><ActivityIndicator size="small" color="#4fc3f7" /><Text style={styles.updatingText}>Обновляем данные…</Text></View>
+      ) : null}
+      <OfflineBanner fromCache={fromCache && !updating} cacheAge={cacheAge} />
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loadingText}>Загружаем оценки...</Text></View>
@@ -112,6 +133,7 @@ const styles = StyleSheet.create({
   gradeText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
   loadingText: { color: '#8a9bb0', marginTop: 12, fontSize: 14 },
+  updatingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6 }, updatingText: { color: '#4fc3f7', fontSize: 12, fontWeight: '600' },
   emptyTitle: { color: '#c8ddf0', fontSize: 15, fontWeight: '700' },
   emptyText: { color: '#71859b', fontSize: 12, marginTop: 5, textAlign: 'center' },
 });

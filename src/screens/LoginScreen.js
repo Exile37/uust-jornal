@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import {
   login,
+  warmProxy,
   isBiometricAvailable,
   authenticateWithBiometrics,
   saveBiometricCredentials,
@@ -21,6 +22,9 @@ export default function LoginScreen({ onLoginSuccess }) {
 
   useEffect(() => {
     checkBiometrics();
+    // Прогреваем прокси, пока пользователь вводит данные — тогда логин не ждёт
+    // «просыпания» бесплатного хостинга.
+    warmProxy();
   }, []);
 
   async function checkBiometrics() {

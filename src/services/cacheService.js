@@ -6,6 +6,18 @@ export function cacheKey(...parts) {
   return PREFIX + parts.filter(Boolean).join(':');
 }
 
+// fetch с таймаутом: бесплатный прокси может «просыпаться» долго,
+// без ограничения запрос висел бы минутами.
+export async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function saveCache(key, value) {
   try {
     await AsyncStorage.setItem(key, JSON.stringify({ data: value, savedAt: Date.now() }));
@@ -28,6 +40,12 @@ export async function loadCache(key) {
     console.error(`[CacheError] Ошибка чтения ключа ${key}:`, e);
     return null;
   }
+}
+
+// Мгновенное чтение кэша без обращения к сети — для показа данных сразу после входа.
+export async function peekCache(key) {
+  const cached = await loadCache(key);
+  return cached ? { data: cached.data, age: cached.age } : null;
 }
 
 export async function clearCache() {

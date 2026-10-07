@@ -2,7 +2,7 @@
   "expo": {
     "name": "uust-app",
     "slug": "uust-app",
-    "version": "1.1.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "jsEngine": "hermes",
@@ -13,11 +13,29 @@
     },
     "android": {
       "package": "com.exile37.uustjournal",
-      "jsEngine": "hermes"
+      "jsEngine": "hermes",
+      "icon": "./assets/icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d1b2a"
+      },
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "plugins": [
       "expo-secure-store",
-      "expo-status-bar"
-    ]
+      "expo-status-bar",
+      "./plugins/withNoApsEnvironment"
+    ],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d1b2a"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
   }
 }
