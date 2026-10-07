@@ -40,6 +40,12 @@ export async function cancelAllLessonReminders() {
   await cancelByTag(REMINDER_TAG);
 }
 
+export async function setGradeBadge(count) {
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, count | 0));
+  } catch (e) {}
+}
+
 /**
  * Пересобирает расписание напоминаний. Без запроса разрешения: если пользователь
  * ещё не давал согласия, просто снимает ранее запланированные напоминания.
@@ -128,6 +134,7 @@ export async function notifyNewGrades(subjectUrl, subjectName, lessons) {
           title: 'Новая оценка',
           body: `${subjectName || 'Предмет'}: ${l.grade}${l.theme ? ` · ${l.theme}` : ''}`,
           data: { source: GRADE_TAG, subjectUrl },
+          badge: fresh.length,
         },
         trigger: null, // доставить сразу
       })
