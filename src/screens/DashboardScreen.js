@@ -4,6 +4,7 @@ import {
   RefreshControl, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { cacheKey, saveCache, peekCache } from '../services/cacheService';
 import { fetchSubjects, fetchGrades, peekSubjects } from '../services/subjectsService';
 import { fetchSchedule, peekSchedule } from '../services/scheduleService';
 import { syncLessonReminders } from '../services/notificationService';
@@ -42,7 +43,8 @@ function formatCache(age) {
 }
 
 // Локальные оценки берём из кэша оценок, чтобы средний балл появился сразу,
-// не дожидаясь сети.
+// не дожидаясь сети. Готовый агрегат тоже кэшируем — тогда следующий вход
+// покажет средний балл мгновенно, без пересчёта.
 async function computeStatsFromCache(subjects) {
   try {
     const results = await Promise.allSettled(
@@ -57,11 +59,14 @@ async function computeStatsFromCache(subjects) {
         if (n >= 2 && n <= 5) { sum += n; count += 1; }
       });
     });
+    if (count > 0) await saveCache(STATS_KEY, { sum, count });
     return { sum, count };
   } catch (e) {
     return { sum: 0, count: 0 };
   }
 }
+
+const STATS_KEY = cacheKey('stats');
 
 function statsToState({ sum, count }) {
   return { gradeCount: count, avg: count ? (sum / count).toFixed(2) : null };
@@ -109,7 +114,10 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
       if (hasCache) { setFromCache(true); setCacheAge(age); }
 
       if (cachedSubjects) {
-        applyStats(await computeStatsFromCache(cachedSubjects.data));
+        // Сначала пробуем готовый агрегат — это мгновенно, без чтения оценок.
+        const cachedStats = await peekCache(STATS_KEY);
+        if (cachedStats) applyStats(cachedStats.data);
+        else applyStats(await computeStatsFromCache(cachedSubjects.data));
       }
       return hasCache;
     } catch (e) {
@@ -121,21 +129,27 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
   const refresh = useCallback(async () => {
     setUpdating(true);
     try {
-      const [subjectsResult, group, groupNameValue] = await Promise.all([
+      const [subjectsResult, group, groupNameValue, tasksList] = await Promise.all([
         fetchSubjects(),
         AsyncStorage.getItem('savedGroupId'),
         AsyncStorage.getItem('savedGroupName'),
+        loadTasks(),
       ]);
       const subjectList = subjectsResult.data || [];
       setSubjects(subjectList);
       setGroupName(groupNameValue || 'Группа не выбрана');
       setFromCache(Boolean(subjectsResult.fromCache));
       setCacheAge(subjectsResult.cacheAge ?? null);
-      setTasks(await loadTasks());
+      setTasks(tasksList);
+
+      // Расписание и оценки независимы — грузим их параллельно, а не по очереди.
+      const [scheduleResult, gradeResults] = await Promise.all([
+        group ? fetchSchedule(group, 0) : Promise.resolve(null),
+        Promise.allSettled(subjectList.slice(0, 12).map(s => fetchGrades(s.url))),
+      ]);
 
       let scheduleData = null;
-      if (group) {
-        const scheduleResult = await fetchSchedule(group, 0);
+      if (scheduleResult) {
         scheduleData = scheduleResult.data || [];
         setSchedule(scheduleData);
         if (scheduleResult.fromCache) {
@@ -144,10 +158,9 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
         }
       }
 
-      const results = await Promise.allSettled(subjectList.slice(0, 12).map(s => fetchGrades(s.url)));
       let sum = 0;
       let count = 0;
-      results.forEach(r => {
+      gradeResults.forEach(r => {
         if (r.status !== 'fulfilled') return;
         (r.value.data || []).forEach(l => {
           const n = parseInt(l.grade, 10);
@@ -155,6 +168,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
         });
       });
       applyStats({ sum, count });
+      if (count > 0) saveCache(STATS_KEY, { sum, count }).catch(() => {});
 
       if (scheduleData) syncLessonReminders(scheduleData).catch(() => {});
     } catch (e) {
@@ -164,7 +178,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [applyStats]);
 
   const load = useCallback(async () => {
     await loadCached();

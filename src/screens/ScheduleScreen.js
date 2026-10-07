@@ -4,7 +4,7 @@ import {
   ActivityIndicator, TextInput, FlatList, Modal, Alert, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/scheduleService';
+import { fetchGroups, fetchSchedule, fetchWeekHeader, peekGroups, peekSchedule } from '../services/scheduleService';
 import LessonCountdown from '../components/LessonCountdown';
 import OfflineBanner from '../components/OfflineBanner';
 
@@ -65,6 +65,7 @@ export default function ScheduleScreen() {
   const [selectedDay, setSelectedDay] = useState(0);
   const [showCountdown, setShowCountdown] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
@@ -92,6 +93,16 @@ export default function ScheduleScreen() {
   }, [groups]);
 
   async function loadGroups() {
+    // Мгновенно показываем группы из кэша, свежие подгружаем в фоне.
+    try {
+      const cachedGroups = await peekGroups();
+      if (cachedGroups) {
+        setGroups(cachedGroups);
+        setFilteredGroups(cachedGroups);
+        setLoadingGroups(false);
+      }
+    } catch (e) { /* идём в сеть */ }
+
     setLoadingGroups(true);
     try {
       const data = await fetchGroups();
@@ -105,7 +116,23 @@ export default function ScheduleScreen() {
   }
 
   async function loadSchedule(groupId, w) {
-    setLoading(true);
+    // Сначала мгновенно показываем сохранённое расписание (без спиннера).
+    let hadCache = false;
+    try {
+      const cached = await peekSchedule(groupId, w);
+      if (cached) {
+        hadCache = true;
+        setSchedule(cached.data);
+        setFromCache(true);
+        setCacheAge(cached.cacheAge ?? null);
+        setWeek(w);
+        setLoading(false);
+      }
+    } catch (e) { /* идём в сеть */ }
+
+    // При наличии кэша не закрываем экран спиннером, а показываем лёгкий индикатор.
+    if (hadCache) setUpdating(true);
+    else setLoading(true);
     try {
       const [schedResult, header] = await Promise.all([
         fetchSchedule(groupId, w),
@@ -120,6 +147,7 @@ export default function ScheduleScreen() {
       Alert.alert('Ошибка', e.message);
     } finally {
       setLoading(false);
+      setUpdating(false);
     }
   }
 
@@ -257,7 +285,10 @@ export default function ScheduleScreen() {
           </View>
 
           {/* Офлайн баннер */}
-          <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+          {updating ? (
+            <View style={styles.updatingBar}><ActivityIndicator size="small" color="#4fc3f7" /><Text style={styles.updatingText}>Обновляем данные…</Text></View>
+          ) : null}
+          <OfflineBanner fromCache={fromCache && !updating} cacheAge={cacheAge} />
 
           {/* Обратный отсчёт до пары */}
           <LessonCountdown schedule={schedule} enabled={showCountdown} />
@@ -408,6 +439,7 @@ const styles = StyleSheet.create({
   emptySubText: { color: '#8a9bb0', fontSize: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#8a9bb0', marginTop: 12 },
+  updatingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6 }, updatingText: { color: '#4fc3f7', fontSize: 12, fontWeight: '600' },
   hintEmoji: { fontSize: 40, marginBottom: 12 },
   hintText: { color: '#8a9bb0', fontSize: 16 },
 });

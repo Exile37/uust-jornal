@@ -11,6 +11,12 @@ export async function peekSchedule(groupId, week = 0) {
   return cached ? { data: cached.data, fromCache: true, cacheAge: cached.age } : null;
 }
 
+// Мгновенно отдаёт список групп из кэша.
+export async function peekGroups() {
+  const cached = await peekCache(cacheKey('groups'));
+  return cached ? cached.data : null;
+}
+
 export async function fetchGroups() {
   const key = cacheKey('groups');
   try {
