@@ -46,6 +46,42 @@ export async function setGradeBadge(count) {
   } catch (e) {}
 }
 
+const TASK_TAG = 'uust-task';
+
+export async function cancelAllTaskReminders() {
+  await cancelByTag(TASK_TAG);
+}
+
+// Дедлайн приходит как 'YYYY-MM-DD'; напоминаем в 9:00 по местному времени.
+export async function syncTaskReminders(tasks) {
+  await cancelAllTaskReminders();
+  if (!Array.isArray(tasks) || !tasks.length) return 0;
+
+  const perm = await Notifications.getPermissionsAsync();
+  if (perm.status !== 'granted') return 0;
+
+  const now = Date.now();
+  let count = 0;
+  for (const t of tasks) {
+    if (t.done || !t.due) continue;
+    const m = String(t.due).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) continue;
+    const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 9, 0, 0);
+    if (date.getTime() <= now) continue;
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Дедлайн задачи',
+        body: t.title,
+        data: { source: TASK_TAG, taskId: t.id },
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date },
+    });
+    count += 1;
+  }
+  return count;
+}
+
 /**
  * Пересобирает расписание напоминаний. Без запроса разрешения: если пользователь
  * ещё не давал согласия, просто снимает ранее запланированные напоминания.

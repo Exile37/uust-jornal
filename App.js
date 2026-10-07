@@ -6,11 +6,13 @@ import GradesScreen from './src/screens/GradesScreen';
 import ScheduleScreen from './src/screens/ScheduleScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import TasksScreen from './src/screens/TasksScreen';
 
 const TABS = [
   { id: 'home', icon: '⌂', label: 'Главная' },
   { id: 'grades', icon: '★', label: 'Оценки' },
   { id: 'schedule', icon: '▦', label: 'Расписание' },
+  { id: 'tasks', icon: '✓', label: 'Задачи' },
   { id: 'settings', icon: '⚙', label: 'Настройки' },
 ];
 
@@ -32,9 +34,10 @@ export default function App() {
     <><StatusBar barStyle="light-content" backgroundColor="#0d1b2a" />
       <View style={styles.container}>
         <View style={styles.content}>
-          {activeTab === 'home' && <DashboardScreen onOpenGrades={() => openTab('grades')} onOpenSchedule={() => openTab('schedule')} onOpenSettings={() => openTab('settings')} />}
+          {activeTab === 'home' && <DashboardScreen onOpenGrades={() => openTab('grades')} onOpenSchedule={() => openTab('schedule')} onOpenSettings={() => openTab('settings')} onOpenTasks={() => openTab('tasks')} />}
           {activeTab === 'grades' && <SubjectsScreen onSelectSubject={handleSelectSubject} onLogout={handleLogout} />}
           {activeTab === 'schedule' && <ScheduleScreen />}
+          {activeTab === 'tasks' && <TasksScreen />}
           {activeTab === 'settings' && <SettingsScreen onLogout={handleLogout} onOpenSchedule={() => openTab('schedule')} />}
         </View>
         <View style={styles.tabBar}>

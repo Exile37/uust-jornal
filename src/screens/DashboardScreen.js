@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchSubjects, fetchGrades } from '../services/subjectsService';
 import { fetchSchedule } from '../services/scheduleService';
 import { syncLessonReminders } from '../services/notificationService';
+import { loadTasks, nextDeadline, daysUntil } from '../services/tasksService';
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -39,11 +40,12 @@ function formatCache(age) {
   return `${Math.floor(age / 60)} ч. назад`;
 }
 
-export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSettings }) {
+export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSettings, onOpenTasks }) {
   const [subjects, setSubjects] = useState([]);
   const [schedule, setSchedule] = useState(null);
   const [avg, setAvg] = useState(null);
   const [gradeCount, setGradeCount] = useState(0);
+  const [tasks, setTasks] = useState([]);
   const [groupName, setGroupName] = useState('');
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
@@ -61,6 +63,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
       setGroupName(groupNameValue || 'Группа не выбрана');
       setFromCache(Boolean(subjectsResult.fromCache));
       setCacheAge(subjectsResult.cacheAge ?? null);
+      setTasks(await loadTasks());
 
       if (group) {
         const scheduleResult = await fetchSchedule(group, 0);
@@ -152,6 +155,33 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
             <View style={styles.lessonInfo}><Text style={styles.lessonName} numberOfLines={1}>{lesson.subject || 'Занятие'}</Text><Text style={styles.lessonMeta}>{lesson.room ? `Каб. ${lesson.room}` : 'Аудитория не указана'}{lesson.teacher ? ` · ${lesson.teacher}` : ''}</Text></View>
           </TouchableOpacity>
         )) : <View style={styles.empty}><Text style={styles.emptyTitle}>Свободный день</Text><Text style={styles.emptyText}>Можно выдохнуть и закрыть хвосты.</Text></View>}
+
+        <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Задачи</Text><TouchableOpacity onPress={onOpenTasks}><Text style={styles.more}>Все →</Text></TouchableOpacity></View>
+        {(tasks.filter((t) => !t.done).length || nextDeadline(tasks)) ? (
+          <TouchableOpacity style={styles.lessonRow} onPress={onOpenTasks}>
+            <View style={styles.timeCol}>
+              <Text style={styles.lessonTime}>{tasks.filter((t) => !t.done).length}</Text>
+              <Text style={styles.lessonNum}>в работе</Text>
+            </View>
+            <View style={styles.lessonInfo}>
+              {nextDeadline(tasks) ? (
+                <>
+                  <Text style={styles.lessonName} numberOfLines={1}>{nextDeadline(tasks).title}</Text>
+                  <Text style={styles.lessonMeta}>
+                    Ближайший дедлайн: {nextDeadline(tasks).due} ({daysUntil(nextDeadline(tasks).due)} дн.)
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.lessonMeta}>Дедлайнов нет</Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Задач нет</Text>
+            <Text style={styles.emptyText}>Добавьте дедлайны, чтобы не забыть.</Text>
+          </View>
+        )}
 
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Быстрые действия</Text></View>
         <View style={styles.quickGrid}>

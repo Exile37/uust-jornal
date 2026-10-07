@@ -160,6 +160,11 @@ export default function ScheduleScreen() {
       {/* Шапка */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Расписание</Text>
+        {schedule ? (
+          <TouchableOpacity onPress={shareDay} style={styles.shareBtn}>
+            <Text style={styles.shareText}>Поделиться</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* Выбор группы */}
@@ -292,8 +297,11 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
     backgroundColor: '#132233', borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#e8f4fd' },
+  shareBtn: { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#0d1b2a', borderRadius: 9, borderWidth: 1, borderColor: '#1e3a4f' },
+  shareText: { color: '#4fc3f7', fontSize: 12, fontWeight: '700' },
   groupSelector: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     margin: 14, backgroundColor: '#132233', borderRadius: 12, padding: 14,
