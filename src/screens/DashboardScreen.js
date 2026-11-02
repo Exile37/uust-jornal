@@ -38,7 +38,7 @@ function formatCache(age) {
   return `${Math.floor(age / 60)} ч. назад`;
 }
 
-export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSettings }) {
+export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpenSchedule, onOpenSettings }) {
   const [subjects, setSubjects] = useState([]);
   const [schedule, setSchedule] = useState(null);
   const [avg, setAvg] = useState(null);
@@ -144,6 +144,15 @@ export default function DashboardScreen({ onOpenGrades, onOpenSchedule, onOpenSe
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity style={styles.bookCard} onPress={onOpenRecordBook} activeOpacity={0.85}>
+          <View style={styles.bookMark}><Text style={styles.bookMarkText}>▤</Text></View>
+          <View style={styles.bookInfo}>
+            <Text style={styles.bookTitle}>Зачётная книжка</Text>
+            <Text style={styles.bookText}>Итоговые оценки по семестрам</Text>
+          </View>
+          <Text style={styles.bookArrow}>›</Text>
+        </TouchableOpacity>
+
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Сегодня</Text><TouchableOpacity onPress={onOpenSchedule}><Text style={styles.more}>Все →</Text></TouchableOpacity></View>
         {todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
           <TouchableOpacity key={`${lesson.time}-${i}`} style={styles.lessonRow} onPress={onOpenSchedule}>
@@ -202,5 +211,12 @@ const styles = StyleSheet.create({
   quickIcon: { color: '#4fc3f7', fontSize: 20, fontWeight: '800' },
   quickTitle: { color: '#e8f4fd', fontSize: 14, fontWeight: '800', marginTop: 9 },
   quickText: { color: '#71859b', fontSize: 11, marginTop: 3 },
+  bookCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 12, padding: 14, backgroundColor: '#132233', borderRadius: 15, borderWidth: 1, borderColor: '#1e3a4f' },
+  bookMark: { width: 38, height: 38, borderRadius: 10, backgroundColor: '#102a3d', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  bookMarkText: { color: '#4fc3f7', fontSize: 18 },
+  bookInfo: { flex: 1 },
+  bookTitle: { color: '#e8f4fd', fontSize: 14, fontWeight: '800' },
+  bookText: { color: '#71859b', fontSize: 11, marginTop: 3 },
+  bookArrow: { color: '#71859b', fontSize: 24, marginLeft: 8 },
   updated: { color: '#566b80', fontSize: 10, textAlign: 'center', marginTop: 20 },
 });

@@ -87,7 +87,7 @@ export default function SettingsScreen({ onLogout, onOpenSchedule }) {
       <TouchableOpacity style={styles.action} onPress={handleClearCache}><Text style={styles.actionText}>Очистить офлайн-кэш</Text><Text style={styles.arrow}>›</Text></TouchableOpacity>
       <TouchableOpacity style={styles.actionDanger} onPress={onLogout}><Text style={styles.dangerText}>Выйти из аккаунта</Text></TouchableOpacity>
 
-      <Text style={styles.version}>УУСТР Журнал · 1.1.0</Text>
+      <Text style={styles.version}>УУСТР Журнал · 1.3.0</Text>
     </ScrollView>
   );
 }
