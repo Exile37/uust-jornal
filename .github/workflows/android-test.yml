@@ -1,0 +1,1133 @@
+name: Test APK - recordbook and speed
+on:
+  push:
+    branches: [test/apk-20261104]
+    paths: ['.github/workflows/android-test.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            src
+            tests
+          fetch-depth: 1
+      - name: Apply reviewed test changes (main is unchanged)
+        shell: bash
+        run: |
+          cat > /tmp/test-changes.patch <<'REVIEWED_PATCH'
+          diff --git a/README.md b/README.md
+          index d7c64701..7687bcf3 100644
+          --- a/README.md
+          +++ b/README.md
+          @@ -100,6 +100,7 @@ uust-jornal/
+           ├── eas.json                            # Профили EAS-сборки
+           ├── package.json
+           ├── proxy.py                            # Локальный Flask-прокси к сайту журнала (см. ниже)
+          +├── recordbook_parser.py                # Точный разбор официальной зачётки
+           ├── assets/                             # Иконка, splash, favicon
+           ├── plugins/
+           │   └── withNoApsEnvironment.js         # Убирает push-entitlement (нужно для бесплатной подписи)
+          @@ -145,8 +146,9 @@ export const PROXY_URL = 'https://uust-proxy.onrender.com';
+           
+           - `GET /api/recordbook` — разбирает ведомость на семестры, дисциплины, формы контроля, преподавателей, даты и оценки, считает средний балл, зачётные единицы и долги;
+           - `GET /api/debug/statement` — показывает, что реально пришло со страницы (заголовки таблиц, первые строки, текст). Нужен, если в ЛК поменяется вёрстка.
+          +- `recordbook_parser.py` — парсер семестров и полей таблицы; `python -m unittest discover -s tests -v` запускает проверки на фикстуре.
+           
+          -Если прокси ещё не обновлён или страница не разобралась, приложение собирает книжку из журнала (`/api/subjects` + `/api/grades`) и помечает данные как «собрано из журнала». Это резервный режим: итоговые оценки в нём могут отличаться от личного кабинета.
+          +Зачётка показывает только официальную выписку, не подменяя её оценками из журнала. Приложение принимает ответ версии схемы 2; если сервер ещё не обновлён или страницу не удалось разобрать, показывается ошибка (либо кэш именно официальной выписки этой версии), а не неверная «зачётка» из текущих оценок.
+           
+           ---
+           
+          @@ -171,6 +173,8 @@ npx expo start
+           
+           После запуска открой проект в приложении **Expo Go** на телефоне или в эмуляторе (команды `a` / `i` в терминале).
+           
+          +Проверки парсера официальной зачётки: `python -m unittest discover -s tests -v`.
+          +
+           > Expo Go подходит только для разработки. Готовое standalone-приложение собирается отдельно (см. ниже).
+           
+           ### Полезно
+          diff --git a/proxy.py b/proxy.py
+          index 7a46a5d7..115381f4 100644
+          --- a/proxy.py
+          +++ b/proxy.py
+          @@ -233,268 +233,9 @@ def grades():
+           # ─── ЗАЧЁТНАЯ КНИЖКА ──────────────────────────────────────────────────────────
+           STATEMENT_URL = "/StatementStudents/Index"
+           
+          -# Формы контроля и оценки, которые встречаются в ведомости
+          -GRADE_RE = re.compile(
+          -    r"^(?:[2-5](?:[.,]\d+)?|зач[её]т|зачтено|не\s*зач[её]т|не\s*зачтено|н/я|н\.?я\.?|неявка)$",
+          -    re.IGNORECASE,
+          +from recordbook_parser import (
+          +    _norm, _cell_text, _parse_statement, _statement_summary,
+           )
+          -NEGATIVE_RE = re.compile(r"^(?:2|не\s*зач[её]т|не\s*зачтено|неуд\w*|н/я|н\.?я\.?|неявка)$", re.IGNORECASE)
+          -CONTROL_RE = re.compile(r"(экзамен|зач[её]т|диф\.?\s*зач|курсов\w*|практик|контрольн)", re.IGNORECASE)
+          -DATE_RE = re.compile(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b")
+          -TEACHER_RE = re.compile(r"^[А-ЯЁ][а-яё\-]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]?\.?$")
+          -SKIP_NAMES = {
+          -    "итого", "всего", "дисциплина", "наименование", "предмет", "семестр", "курс",
+          -    "главная", "расписание", "оценки", "настройки", "профиль", "журнал", "выход",
+          -    "выйти", "назад", "далее", "подробнее", "печать",
+          -}
+          -
+          -
+          -def _norm(value):
+          -    return re.sub(r"\s+", " ", (value or "")).strip()
+          -
+          -
+          -def _lower(value):
+          -    return _norm(value).lower().replace("ё", "е")
+          -
+          -
+          -def _cell_text(cell):
+          -    return _norm(cell.get_text(" ", strip=True))
+          -
+          -
+          -def _labeled(text, labels, max_len=90):
+          -    """Достаёт значение из строки вида «Группа: ИС-301»."""
+          -    for label in labels:
+          -        match = re.search(rf"{label}\s*[:\-—]?\s*([^\n]{{2,{max_len}}})", text, re.IGNORECASE)
+          -        if match:
+          -            value = _norm(match.group(1))
+          -            value = re.split(r"\s{2,}|\s+[А-ЯЁA-Z][а-яёa-z]+\s*:", value)[0]
+          -            if value:
+          -                return value[:max_len]
+          -    return ""
+          -
+          -
+          -def _parse_student(soup):
+          -    text = soup.get_text("\n", strip=True)
+          -    info = {
+          -        "name": _labeled(text, [r"ФИО", r"Студент(?:ка)?", r"Обучающийся"]),
+          -        "group": _labeled(text, [r"Группа"], 40),
+          -        "faculty": _labeled(text, [r"Факультет", r"Направление подготовки", r"Специальность"], 90),
+          -        "recordBook": "",
+          -    }
+          -    book = re.search(
+          -        r"(?:№|номер)?\s*зач[её]тн\w*\s+книжк\w*[^\d]{0,20}(\d{4,}(?:[-/]\d{1,8})?)",
+          -        text,
+          -        re.IGNORECASE,
+          -    )
+          -    if not book:
+          -        book = re.search(r"(?:№|номер)\s*зач[её]тки[^\d]{0,20}(\d{4,}(?:[-/]\d{1,8})?)", text, re.IGNORECASE)
+          -    if book:
+          -        info["recordBook"] = _norm(book.group(1))
+          -
+          -    # ФИО часто лежит в шапке страницы отдельной строкой без подписи
+          -    if not info["name"]:
+          -        heading = soup.find(["h1", "h2", "h3"])
+          -        if heading:
+          -            value = _norm(heading.get_text(" ", strip=True))
+          -            value = re.sub(r"(?i)зач[её]тная\s+книжка\s*(студента)?", "", value).strip(" :—-")
+          -            if 5 <= len(value) <= 70:
+          -                info["name"] = value
+          -    return info
+          -
+          -
+          -def _columns(headers):
+          -    def find(*keys):
+          -        for index, header in enumerate(headers):
+          -            lowered = _lower(header)
+          -            if any(key in lowered for key in keys):
+          -                return index
+          -        return -1
+          -
+          -    return {
+          -        "number": find("№", "номер", "п/п"),
+          -        "name": find("дисциплин", "предмет", "наименован"),
+          -        "semester": find("семестр", "курс"),
+          -        "control": find("форма контрол", "вид контрол", "контрол", "отчетност"),
+          -        "teacher": find("преподават", "фио"),
+          -        "date": find("дата"),
+          -        "grade": find("оценка", "результат", "итог"),
+          -        "credits": find("з.е", "зачетн", "кредит"),
+          -        "hours": find("час"),
+          -    }
+          -
+          -
+          -def _semester_title(value):
+          -    value = _norm(value)
+          -    if not value:
+          -        return ""
+          -    match = re.search(r"(\d+)\s*(семестр|сем\.)", value, re.IGNORECASE)
+          -    if match:
+          -        return f"{match.group(1)} семестр"
+          -    match = re.search(r"(\d+)\s*курс", value, re.IGNORECASE)
+          -    if match:
+          -        return f"{match.group(1)} курс"
+          -    return value
+          -
+          -
+          -def _row_grade(texts, idx):
+          -    if idx["grade"] >= 0 and idx["grade"] < len(texts):
+          -        value = _norm(texts[idx["grade"]])
+          -        return value if value and GRADE_RE.match(value) else ""
+          -    for value in reversed(texts[1:]):
+          -        value = _norm(value)
+          -        if value and GRADE_RE.match(value):
+          -            return value
+          -    return ""
+          -
+          -
+          -def _row_control(texts, idx):
+          -    if idx["control"] >= 0 and idx["control"] < len(texts):
+          -        value = _norm(texts[idx["control"]])
+          -        if value:
+          -            return value
+          -    for value in texts:
+          -        if CONTROL_RE.search(value) and len(value) <= 60:
+          -            return _norm(value)
+          -    return ""
+          -
+          -
+          -def _table_context(table):
+          -    for node in table.find_all_previous(limit=6):
+          -        name = getattr(node, "name", "") or ""
+          -        classes = " ".join(node.get("class", [])) if hasattr(node, "get") else ""
+          -        if name in ("h1", "h2", "h3", "h4", "h5", "h6", "caption", "legend") or "heading" in classes or "title" in classes:
+          -            value = _norm(node.get_text(" ", strip=True))
+          -            if re.search(r"(семестр|курс)", value, re.IGNORECASE) and len(value) <= 90:
+          -                return value
+          -    return ""
+          -
+          -
+          -def _parse_statement(soup):
+          -    student = _parse_student(soup)
+          -    semesters = []
+          -    seen = set()
+          -
+          -    for table in soup.find_all("table"):
+          -        rows = table.find_all("tr")
+          -        if len(rows) < 2:
+          -            continue
+          -
+          -        header_cells = rows[0].find_all(["th", "td"])
+          -        headers = [_cell_text(cell) for cell in header_cells]
+          -        idx = _columns(headers)
+          -        has_header = idx["name"] >= 0 or any(_lower(h) in ("№", "n") for h in headers)
+          -        data_rows = rows[1:] if has_header else rows
+          -        context = _semester_title(_table_context(table))
+          -
+          -        for row in data_rows:
+          -            cells = row.find_all(["td", "th"])
+          -            texts = [_cell_text(cell) for cell in cells]
+          -            if not any(texts):
+          -                continue
+          -
+          -            if idx["name"] >= 0 and idx["name"] < len(texts):
+          -                name = texts[idx["name"]]
+          -            else:
+          -                meaningful = [
+          -                    text for index, text in enumerate(texts)
+          -                    if index > 0
+          -                    and len(text) > 2
+          -                    and not GRADE_RE.match(text)
+          -                    and not DATE_RE.search(text)
+          -                    and not CONTROL_RE.search(text)
+          -                    and not TEACHER_RE.match(text)
+          -                    and not re.fullmatch(r"[\d\s.,]+", text)
+          -                ]
+          -                name = meaningful[0] if meaningful else ""
+          -
+          -            name = _norm(name)
+          -            if not name or _lower(name) in SKIP_NAMES:
+          -                continue
+          -            if len(name) < 3 or len(name) > 200:
+          -                continue
+          -
+          -            grade = _row_grade(texts, idx)
+          -            semester_value = ""
+          -            if idx["semester"] >= 0 and idx["semester"] < len(texts):
+          -                semester_value = _semester_title(texts[idx["semester"]])
+          -            semester_value = semester_value or context or "Зачётная книжка"
+          -
+          -            teacher = texts[idx["teacher"]] if 0 <= idx["teacher"] < len(texts) else ""
+          -            date = ""
+          -            if 0 <= idx["date"] < len(texts) and DATE_RE.search(texts[idx["date"]]):
+          -                date = DATE_RE.search(texts[idx["date"]]).group(0)
+          -            else:
+          -                for value in texts:
+          -                    found = DATE_RE.search(value)
+          -                    if found:
+          -                        date = found.group(0)
+          -                        break
+          -
+          -            credits = ""
+          -            if 0 <= idx["credits"] < len(texts):
+          -                credits = re.sub(r"[^\d.,]", "", texts[idx["credits"]]).replace(",", ".")
+          -            hours = ""
+          -            if 0 <= idx["hours"] < len(texts):
+          -                hours = re.sub(r"[^\d]", "", texts[idx["hours"]])
+          -
+          -            key = (_lower(name), _lower(semester_value), grade)
+          -            if key in seen:
+          -                continue
+          -            seen.add(key)
+          -
+          -            item = {
+          -                "name": name,
+          -                "semester": semester_value,
+          -                "control": _row_control(texts, idx),
+          -                "teacher": _norm(teacher),
+          -                "date": date,
+          -                "grade": grade,
+          -                "credits": credits,
+          -                "hours": hours,
+          -            }
+          -
+          -            target = next((group for group in semesters if group["title"] == semester_value), None)
+          -            if target is None:
+          -                target = {"title": semester_value, "disciplines": []}
+          -                semesters.append(target)
+          -            target["disciplines"].append(item)
+          -
+          -    def sort_key(group):
+          -        match = re.search(r"\d+", group["title"])
+          -        return (int(match.group(0)) if match else 99, group["title"])
+          -
+          -    semesters.sort(key=sort_key)
+          -    return student, semesters
+          -
+          -
+          -def _statement_summary(semesters):
+          -    grades = []
+          -    credits = 0.0
+          -    has_credits = False
+          -    debts = 0
+          -    total = 0
+          -    for group in semesters:
+          -        for item in group["disciplines"]:
+          -            total += 1
+          -            grade = _norm(item.get("grade"))
+          -            if grade:
+          -                if re.fullmatch(r"[2-5](?:[.,]\d+)?", grade):
+          -                    grades.append(float(grade.replace(",", ".")))
+          -                elif NEGATIVE_RE.match(grade):
+          -                    debts += 1
+          -            raw_credits = item.get("credits") or ""
+          -            if raw_credits:
+          -                try:
+          -                    credits += float(raw_credits)
+          -                    has_credits = True
+          -                except ValueError:
+          -                    pass
+          -    return {
+          -        "average": round(sum(grades) / len(grades), 2) if grades else None,
+          -        "credits": round(credits, 1) if has_credits else None,
+          -        "debts": debts,
+          -        "total": total,
+          -    }
+           
+           
+           def _statement_client():
+          @@ -521,6 +262,8 @@ def recordbook():
+                   if response.status_code >= 400:
+                       return jsonify({"error": f"Сайт ответил {response.status_code}"})
+                   soup = BeautifulSoup(response.text, "lxml")
+          +        if "/Account/Login" in response.url or soup.select_one('input[type="password"]'):
+          +            return jsonify({"error": "auth"}), 401
+                   student, semesters = _parse_statement(soup)
+                   if not semesters:
+                       return jsonify({
+          @@ -530,7 +273,9 @@ def recordbook():
+                   return jsonify({
+                       "student": student,
+                       "semesters": semesters,
+          -            "summary": _statement_summary(semesters),
+          +            "summary": _statement_summary(semesters, soup),
+          +            "schemaVersion": 2,
+          +            "source": "lk",
+                       "sourceUrl": url,
+                   })
+               except Exception as exc:
+          diff --git a/recordbook_parser.py b/recordbook_parser.py
+          new file mode 100644
+          index 00000000..34806daa
+          --- /dev/null
+          +++ b/recordbook_parser.py
+          @@ -0,0 +1,169 @@
+          +"""Parsing the *official* record book, with no guesses from journal marks.
+          +
+          +Only named columns are used: a course number or hours must never become a grade.
+          +Raw cell values are kept for display; derived statistics are explicitly labelled.
+          +"""
+          +import re
+          +
+          +
+          +def _norm(value):
+          +    return re.sub(r"\s+", " ", value or "").strip()
+          +
+          +
+          +def _lower(value):
+          +    return _norm(value).lower().replace("ё", "е")
+          +
+          +
+          +def _cell_text(cell):
+          +    return _norm(cell.get_text(" ", strip=True))
+          +
+          +
+          +def _columns(headers):
+          +    def find(*keys):
+          +        return next((i for i, h in enumerate(headers)
+          +                     if any(k in _lower(h) for k in keys)), -1)
+          +    return {
+          +        "name": find("дисциплин", "предмет", "наименован"),
+          +        "course": find("курс"),
+          +        "semester": find("семестр"),
+          +        "control": find("контрол", "отчетност"),
+          +        "teacher": find("преподават", "фио"),
+          +        "date": find("дата"),
+          +        "grade": find("оценка", "результат"),
+          +        "credits": find("з.е", "з. е", "зачетн", "кредит"),
+          +        "hours": find("час"),
+          +    }
+          +
+          +
+          +def _positive_int(value):
+          +    match = re.fullmatch(r"\s*(\d+)\s*(?:курс|семестр)?\s*", value, re.I)
+          +    return int(match[1]) if match and int(match[1]) > 0 else None
+          +
+          +
+          +def _period(value):
+          +    course = re.search(r"(\d+)\s*курс", value, re.I)
+          +    semester = re.search(r"(\d+)\s*семестр", value, re.I)
+          +    return (int(course[1]) if course else None,
+          +            int(semester[1]) if semester else None)
+          +
+          +
+          +def _table_context(table):
+          +    """Search siblings/ancestors, not just six preceding *cells*."""
+          +    for node in table.previous_elements:
+          +        if getattr(node, "name", None) == "table":
+          +            break
+          +        if getattr(node, "name", None) not in (
+          +                "h1", "h2", "h3", "h4", "h5", "h6", "caption", "legend", "div", "p", "b", "strong"):
+          +            continue
+          +        value = _cell_text(node)
+          +        if len(value) <= 90 and _period(value)[1] is not None:
+          +            return _period(value)
+          +    caption = table.find("caption")
+          +    return _period(_cell_text(caption)) if caption else (None, None)
+          +
+          +
+          +def _statement_scope(soup):
+          +    # Bootstrap tabs: archive and debts must not be mixed into the record book.
+          +    for link in soup.select('a[href^="#"]'):
+          +        label = _lower(_cell_text(link))
+          +        if "электронная" in label and "зачетная" in label:
+          +            pane = soup.find(id=link.get("href", "")[1:])
+          +            if pane is not None:
+          +                return pane
+          +    return soup
+          +
+          +
+          +def _parse_student(soup):
+          +    # Use explicit labels only. A heading like "1 курс 1 семестр" is not a name.
+          +    text = soup.get_text("\n", strip=True)
+          +    result = {"name": "", "group": "", "faculty": "", "recordBook": ""}
+          +    labels = {"name": r"ФИО|Студент(?:ка)?|Обучающийся",
+          +              "group": r"Группа", "faculty": r"Факультет|Специальность",
+          +              "recordBook": r"(?:Номер|№)\s*зач[её]тн\w*\s+книжк\w*"}
+          +    for key, label in labels.items():
+          +        match = re.search(rf"(?:^|\n)(?:{label})\s*:\s*([^\n]+)", text, re.I)
+          +        if match:
+          +            result[key] = _norm(match[1])[:120]
+          +    return result
+          +
+          +
+          +def _parse_statement(soup):
+          +    scope = _statement_scope(soup)
+          +    groups = {}
+          +    for table in scope.find_all("table"):
+          +        rows = [r for r in table.find_all("tr") if r.find_parent("table") is table]
+          +        idx = None
+          +        context_course, context_semester = _table_context(table)
+          +        for row in rows:
+          +            cells = row.find_all(["th", "td"], recursive=False)
+          +            texts = [_cell_text(c) for c in cells]
+          +            candidate = _columns(texts)
+          +            if candidate["name"] >= 0 and candidate["grade"] >= 0:
+          +                idx = candidate
+          +                continue
+          +            if len(texts) == 1 and _period(texts[0])[1] is not None:
+          +                context_course, context_semester = _period(texts[0])
+          +                continue
+          +            if idx is None or len(texts) <= max(idx["name"], idx["grade"]):
+          +                continue
+          +            def get(key):
+          +                i = idx[key]
+          +                return texts[i] if 0 <= i < len(texts) else ""
+          +            name = get("name")
+          +            if not name or _lower(name) in {"итого", "всего", "дисциплина"}:
+          +                continue
+          +            course = _positive_int(get("course")) or context_course
+          +            semester = _positive_int(get("semester")) or context_semester
+          +            title = (f"{course} курс · " if course else "") + (
+          +                f"{semester} семестр" if semester else "Семестр не указан")
+          +            key = (course, semester)
+          +            if key not in groups:
+          +                groups[key] = {"title": title, "course": course, "semester": semester, "disciplines": []}
+          +            # Do not deduplicate by name/grade: exam and project can legitimately match.
+          +            item = {field: get(field) for field in (
+          +                "name", "control", "teacher", "date", "grade", "credits", "hours")}
+          +            item.update(course=course, semester=semester,
+          +                        numericGrade=_numeric_grade(item["grade"]))
+          +            groups[key]["disciplines"].append(item)
+          +    semesters = sorted(groups.values(), key=lambda g: (
+          +        g["semester"] if g["semester"] is not None else 999,
+          +        g["course"] if g["course"] is not None else 999))
+          +    return _parse_student(soup), semesters
+          +
+          +
+          +def _numeric_grade(value):
+          +    value = _lower(value)
+          +    words = {"отлично": 5, "хорошо": 4, "удовлетворительно": 3,
+          +             "неудовлетворительно": 2, "неуд": 2, "неуд.": 2}
+          +    if value in words:
+          +        return words[value]
+          +    if re.fullmatch(r"[2-5](?:[.,]0+)?", value):
+          +        return int(float(value.replace(",", ".")))
+          +    return None
+          +
+          +
+          +def _site_number(soup, label):
+          +    # Handles text nodes separated by <br>, <span> or <td>.
+          +    text = soup.get_text(" ", strip=True)
+          +    match = re.search(rf"{label}\s*:?\s*(\d+(?:[.,]\d+)?)(?![\d.,])", text, re.I)
+          +    return float(match[1].replace(",", ".")) if match else None
+          +
+          +
+          +def _statement_summary(semesters, soup=None):
+          +    items = [item for group in semesters for item in group["disciplines"]]
+          +    grades = [_numeric_grade(item["grade"]) for item in items]
+          +    grades = [g for g in grades if g is not None]
+          +    calculated = round(sum(grades) / len(grades), 2) if grades else None
+          +    average = _site_number(_statement_scope(soup), r"Средний\s+балл") if soup is not None else None
+          +    rating = _site_number(_statement_scope(soup), r"Рейтинг\s+студента") if soup is not None else None
+          +    failed = sum(_numeric_grade(i["grade"]) == 2 or _lower(i["grade"]) in {
+          +        "не зачтено", "незачтено", "не зачет", "незачет", "н/я", "н.я.", "неявка"} for i in items)
+          +    return {
+          +        "average": average if average is not None else calculated,
+          +        "averageSource": "site" if average is not None else "calculated",
+          +        "rating": rating,
+          +        "total": len(items),
+          +        "failed": failed,
+          +        # A missing mark or failed attempt is not proof of a current debt.
+          +        "debts": None,
+          +    }
+          diff --git a/src/screens/DashboardScreen.js b/src/screens/DashboardScreen.js
+          index 0eaddb73..6e75322d 100644
+          --- a/src/screens/DashboardScreen.js
+          +++ b/src/screens/DashboardScreen.js
+          @@ -42,7 +42,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
+             const [subjects, setSubjects] = useState([]);
+             const [schedule, setSchedule] = useState(null);
+             const [avg, setAvg] = useState(null);
+          -  const [gradeCount, setGradeCount] = useState(0);
+          +  const [gradeCount, setGradeCount] = useState(null);
+             const [groupName, setGroupName] = useState('');
+             const [fromCache, setFromCache] = useState(false);
+             const [cacheAge, setCacheAge] = useState(null);
+          @@ -50,50 +50,55 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
+             const [loading, setLoading] = useState(true);
+           
+             const load = useCallback(async () => {
+          -    try {
+          -      const [subjectsResult, group, groupNameValue] = await Promise.all([
+          -        fetchSubjects(),
+          -        AsyncStorage.getItem('savedGroupId'),
+          -        AsyncStorage.getItem('savedGroupName'),
+          -      ]);
+          -      setSubjects(subjectsResult.data || []);
+          -      setGroupName(groupNameValue || 'Группа не выбрана');
+          -      setFromCache(Boolean(subjectsResult.fromCache));
+          -      setCacheAge(subjectsResult.cacheAge ?? null);
+          -
+          -      if (group) {
+          -        const scheduleResult = await fetchSchedule(group, 0);
+          -        setSchedule(scheduleResult.data || []);
+          -        if (scheduleResult.fromCache) {
+          -          setFromCache(true);
+          -          setCacheAge(scheduleResult.cacheAge ?? cacheAge);
+          -        }
+          -      }
+          -
+          -      const results = await Promise.allSettled((subjectsResult.data || []).slice(0, 12).map(s => fetchGrades(s.url)));
+          +    const [group, groupNameValue] = await Promise.all([
+          +      AsyncStorage.getItem('savedGroupId'),
+          +      AsyncStorage.getItem('savedGroupName'),
+          +    ]);
+          +    setGroupName(groupNameValue || 'Группа не выбрана');
+          +
+          +    // Fetch the day and subjects together. Do not hold the whole home screen
+          +    // behind up to 12 separate grade-page requests; fill statistics afterwards.
+          +    const scheduleTask = group
+          +      ? fetchSchedule(group, 0).then((result) => {
+          +          setSchedule(result.data || []);
+          +          if (result.fromCache) {
+          +            setFromCache(true);
+          +            setCacheAge(result.cacheAge ?? null);
+          +          }
+          +        }).catch(() => {}).finally(() => setLoading(false))
+          +      : Promise.resolve().finally(() => setLoading(false));
+          +
+          +    const subjectsTask = fetchSubjects().then(async (subjectsResult) => {
+          +      const subjectList = subjectsResult.data || [];
+          +      setSubjects(subjectList);
+          +      setFromCache((current) => current || Boolean(subjectsResult.fromCache));
+          +      if (subjectsResult.fromCache) setCacheAge(subjectsResult.cacheAge ?? null);
+          +
+          +      const results = await Promise.allSettled(subjectList.slice(0, 12).map((subject) => fetchGrades(subject.url)));
+                 let sum = 0;
+                 let count = 0;
+          -      results.forEach(r => {
+          -        if (r.status !== 'fulfilled') return;
+          -        (r.value.data || []).forEach(l => {
+          -          const n = parseInt(l.grade, 10);
+          -          if (n >= 2 && n <= 5) { sum += n; count += 1; }
+          +      results.forEach((result) => {
+          +        if (result.status !== 'fulfilled') return;
+          +        (result.value.data || []).forEach((lesson) => {
+          +          const number = parseInt(lesson.grade, 10);
+          +          if (number >= 2 && number <= 5) { sum += number; count += 1; }
+                   });
+                 });
+                 setGradeCount(count);
+                 setAvg(count ? (sum / count).toFixed(2) : null);
+          -    } catch (e) {
+          -      // Отдельные блоки экрана могут работать даже если сеть недоступна.
+          -    } finally {
+          -      setLoading(false);
+          -      setRefreshing(false);
+          -    }
+          +    }).catch(() => {});
+          +
+          +    await Promise.allSettled([scheduleTask, subjectsTask]);
+          +    setLoading(false);
+          +    setRefreshing(false);
+             }, []);
+           
+             useEffect(() => { load(); }, [load]);
+           
+             const next = getNextLesson(schedule);
+          -  const todayLessons = schedule?.[Math.min(Math.max(new Date().getDay() - 1, 0), 5)]?.lessons || [];
+          +  const todayLessons = schedule
+          +    ? (schedule[Math.min(Math.max(new Date().getDay() - 1, 0), 5)]?.lessons || [])
+          +    : null;
+           
+             if (loading) {
+               return <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loading}>Собираем ваш день...</Text></View>;
+          @@ -126,7 +131,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
+                           {next.lesson.room ? <Text style={styles.heroRoom}>Каб. {next.lesson.room}</Text> : null}
+                         </View>
+                       </>
+          -          ) : <Text style={styles.heroTitle}>На ближайшие дни занятий нет</Text>}
+          +          ) : <Text style={styles.heroTitle}>{schedule ? 'На ближайшие дни занятий нет' : (groupName === 'Группа не выбрана' ? 'Выберите группу в расписании' : 'Расписание пока не загрузилось')}</Text>}
+                   </TouchableOpacity>
+           
+                   <View style={styles.statsRow}>
+          @@ -135,7 +140,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
+                       <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
+          -            <Text style={styles.statValue}>{gradeCount}</Text>
+          +            <Text style={styles.statValue}>{gradeCount == null ? '—' : gradeCount}</Text>
+                       <Text style={styles.statLabel}>ОЦЕНОК</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
+          @@ -154,7 +159,9 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
+                   </TouchableOpacity>
+           
+                   <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Сегодня</Text><TouchableOpacity onPress={onOpenSchedule}><Text style={styles.more}>Все →</Text></TouchableOpacity></View>
+          -        {todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
+          +        {todayLessons === null ? (
+          +          <TouchableOpacity style={styles.empty} onPress={onOpenSchedule}><Text style={styles.emptyTitle}>День пока не загружен</Text><Text style={styles.emptyText}>Откройте расписание и попробуйте обновить.</Text></TouchableOpacity>
+          +        ) : todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
+                     <TouchableOpacity key={`${lesson.time}-${i}`} style={styles.lessonRow} onPress={onOpenSchedule}>
+                       <View style={styles.timeCol}><Text style={styles.lessonTime}>{lesson.time || '—'}</Text><Text style={styles.lessonNum}>Пара {lesson.num || i + 1}</Text></View>
+                       <View style={styles.lessonInfo}><Text style={styles.lessonName} numberOfLines={1}>{lesson.subject || 'Занятие'}</Text><Text style={styles.lessonMeta}>{lesson.room ? `Каб. ${lesson.room}` : 'Аудитория не указана'}{lesson.teacher ? ` · ${lesson.teacher}` : ''}</Text></View>
+          diff --git a/src/screens/RecordBookScreen.js b/src/screens/RecordBookScreen.js
+          index 622876cc..819cb6cb 100644
+          --- a/src/screens/RecordBookScreen.js
+          +++ b/src/screens/RecordBookScreen.js
+          @@ -29,19 +29,19 @@ function markColors(value, isAverage) {
+             const grade = String(value || '').trim().toLowerCase().replace('ё', 'е');
+             if (isAverage) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
+             if (!grade) return { bg: '#0f1f2e', fg: '#5c7186', border: '#1e3a4f' };
+          -  if (grade === '2' || grade.includes('не зач') || grade === 'н/я' || grade === 'неявка') {
+          +  if (grade === '2' || grade === 'неудовлетворительно' || grade === 'неуд.' || grade.includes('не зач') || grade === 'н/я' || grade === 'неявка') {
+               return { bg: '#3a1a1d', fg: '#ef5350', border: '#54252b' };
+             }
+          -  if (grade === '5' || grade === '4') return { bg: '#1b3324', fg: '#66bb6a', border: '#285034' };
+          -  if (grade === '3') return { bg: '#3a2a12', fg: '#ffb74d', border: '#5a411c' };
+          +  if (grade === '5' || grade === '4' || grade === 'отлично' || grade === 'хорошо') return { bg: '#1b3324', fg: '#66bb6a', border: '#285034' };
+          +  if (grade === '3' || grade === 'удовлетворительно') return { bg: '#3a2a12', fg: '#ffb74d', border: '#5a411c' };
+             if (grade.includes('зач')) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
+             return { bg: '#132233', fg: '#c8ddf0', border: '#1e3a4f' };
+           }
+           
+           function semesterStats(disciplines) {
+             const numbers = disciplines
+          -    .map((item) => parseFloat(String(item.average || item.grade || '').replace(',', '.')))
+          -    .filter((number) => number >= 2 && number <= 5);
+          +    .map((item) => item.numericGrade ?? parseFloat(String(item.average || item.grade || '').replace(',', '.')))
+          +    .filter((number) => Number.isFinite(number) && number >= 2 && number <= 5);
+             return {
+               count: disciplines.length,
+               average: numbers.length ? numbers.reduce((sum, number) => sum + number, 0) / numbers.length : null,
+          @@ -157,16 +157,16 @@ export default function RecordBookScreen({ onLogout }) {
+           
+                   <View style={styles.statsRow}>
+                     <View style={styles.statCard}>
+          -            <Text style={styles.statValue}>{summary.average != null ? summary.average : '—'}</Text>
+          -            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text>
+          +            <Text style={styles.statValue}>{summary.average != null ? Number(summary.average).toFixed(2).replace('.', ',') : '—'}</Text>
+          +            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ{summary.averageSource === 'calculated' ? ' · РАСЧЁТ' : ''}</Text>
+                     </View>
+                     <View style={styles.statCard}>
+                       <Text style={styles.statValue}>{summary.total ?? semesters.reduce((sum, item) => sum + item.disciplines.length, 0)}</Text>
+                       <Text style={styles.statLabel}>ДИСЦИПЛИН</Text>
+                     </View>
+                     <View style={styles.statCard}>
+          -            <Text style={[styles.statValue, summary.debts > 0 && styles.statValueDanger]}>{summary.debts ?? 0}</Text>
+          -            <Text style={styles.statLabel}>ДОЛГОВ</Text>
+          +            <Text style={styles.statValue}>{summary.rating != null ? Number(summary.rating).toLocaleString('ru-RU') : '—'}</Text>
+          +            <Text style={styles.statLabel}>РЕЙТИНГ</Text>
+                     </View>
+                   </View>
+           
+          @@ -189,7 +189,7 @@ export default function RecordBookScreen({ onLogout }) {
+                           <Text style={styles.semTitle}>{semester.title}</Text>
+                           <Text style={styles.semMeta}>
+                             {stats.count} {plural(stats.count, 'дисциплина', 'дисциплины', 'дисциплин')}
+          -                  {stats.average != null ? ` · ${stats.average.toFixed(2)}` : ''}
+          +                  {stats.average != null ? ` · ср. по оценкам ${stats.average.toFixed(2)}` : ''}
+                           </Text>
+                         </View>
+                         <View style={styles.semBody}>
+          @@ -205,7 +205,7 @@ export default function RecordBookScreen({ onLogout }) {
+                     );
+                   })}
+           
+          -        <Text style={styles.footer}>Источник: личный кабинет account.str.uust.ru</Text>
+          +        <Text style={styles.footer}>Официальная выписка · account.str.uust.ru</Text>
+                 </ScrollView>
+               </View>
+             );
+          diff --git a/src/screens/ScheduleScreen.js b/src/screens/ScheduleScreen.js
+          index bee686b8..af7fddbf 100644
+          --- a/src/screens/ScheduleScreen.js
+          +++ b/src/screens/ScheduleScreen.js
+          @@ -1,4 +1,4 @@
+          -import React, { useState, useEffect } from 'react';
+          +import React, { useState, useEffect, useRef } from 'react';
+           import {
+             View, Text, TouchableOpacity, StyleSheet, ScrollView,
+             ActivityIndicator, TextInput, FlatList, Modal, Alert,
+          @@ -66,25 +66,23 @@ export default function ScheduleScreen() {
+             const [loadingGroups, setLoadingGroups] = useState(false);
+             const [fromCache, setFromCache] = useState(false);
+             const [cacheAge, setCacheAge] = useState(null);
+          +  const scheduleRequestId = useRef(0);
+           
+             useEffect(() => {
+               loadGroups();
+               const d = new Date().getDay();
+               setSelectedDay(d === 0 ? 0 : Math.min(d - 1, 5));
+          -  }, []);
+          -
+          -  useEffect(() => {
+          -    if (groups.length === 0) return;
+          -    AsyncStorage.getItem('savedGroupId').then(id => {
+          -      if (id) {
+          -        const g = groups.find(gr => gr.id === id);
+          -        if (g) {
+          -          setSelectedGroup(g);
+          -          loadSchedule(g.id, 0);
+          -        }
+          -      }
+          +    // The saved group ID is enough to request the timetable; don't make the
+          +    // student wait for the (separate) group directory first.
+          +    Promise.all([
+          +      AsyncStorage.getItem('savedGroupId'),
+          +      AsyncStorage.getItem('savedGroupName'),
+          +    ]).then(([id, name]) => {
+          +      if (!id || scheduleRequestId.current > 0) return;
+          +      setSelectedGroup({ id, name: name || 'Моя группа' });
+          +      loadSchedule(id, 0);
+               });
+          -  }, [groups]);
+          +  }, []);
+           
+             async function loadGroups() {
+               setLoadingGroups(true);
+          @@ -92,6 +90,9 @@ export default function ScheduleScreen() {
+                 const data = await fetchGroups();
+                 setGroups(data);
+                 setFilteredGroups(data);
+          +      const savedId = await AsyncStorage.getItem('savedGroupId');
+          +      const saved = data.find(group => group.id === savedId);
+          +      if (saved) setSelectedGroup(saved);
+               } catch (e) {
+                 Alert.alert('Ошибка', 'Не удалось загрузить список групп');
+               } finally {
+          @@ -100,21 +101,24 @@ export default function ScheduleScreen() {
+             }
+           
+             async function loadSchedule(groupId, w) {
+          +    const requestId = ++scheduleRequestId.current;
+               setLoading(true);
+          +    setWeek(w);
+          +    setWeekHeader('');
+               try {
+          -      const [schedResult, header] = await Promise.all([
+          -        fetchSchedule(groupId, w),
+          -        fetchWeekHeader(groupId, w),
+          -      ]);
+          +      const schedResult = await fetchSchedule(groupId, w);
+          +      if (requestId !== scheduleRequestId.current) return;
+                 setSchedule(schedResult.data);
+                 setFromCache(schedResult.fromCache || false);
+          -      setCacheAge(schedResult.cacheAge || null);
+          -      setWeekHeader(header);
+          -      setWeek(w);
+          +      setCacheAge(schedResult.cacheAge ?? null);
+          +      // The header is decorative; load it after showing the actual timetable.
+          +      fetchWeekHeader(groupId, w).then(header => {
+          +        if (requestId === scheduleRequestId.current) setWeekHeader(header);
+          +      });
+               } catch (e) {
+          -      Alert.alert('Ошибка', e.message);
+          +      if (requestId === scheduleRequestId.current) Alert.alert('Ошибка', e.message);
+               } finally {
+          -      setLoading(false);
+          +      if (requestId === scheduleRequestId.current) setLoading(false);
+               }
+             }
+           
+          diff --git a/src/services/authService.js b/src/services/authService.js
+          index e3c6b4fc..39b3ced8 100644
+          --- a/src/services/authService.js
+          +++ b/src/services/authService.js
+          @@ -54,9 +54,24 @@ export async function login(username, password) {
+             });
+             const data = await resp.json();
+           
+          +  if (data.success) {
+          +    // Never offer another login's cached official statement while offline.
+          +    await AsyncStorage.removeItem('uust:recordbook').catch(() => {});
+          +  }
+          +
+             if (data.success && data.group_name) {
+               try {
+                 const cleanName = data.group_name.replace(/^К-/i, '').trim();
+          +      const [savedGroupId, savedGroupName] = await Promise.all([
+          +        AsyncStorage.getItem('savedGroupId'),
+          +        AsyncStorage.getItem('savedGroupName'),
+          +      ]);
+          +      const normalizeGroup = value => String(value || '').replace(/^К-/i, '').trim().toLowerCase();
+          +      // Most sign-ins are for the same class. Reuse its known timetable ID
+          +      // instead of blocking login on another group-list request.
+          +      if (savedGroupId && normalizeGroup(savedGroupName) === normalizeGroup(data.group_name)) {
+          +        return data;
+          +      }
+                 const groupsResp = await fetch(`${PROXY_URL}/api/schedule/groups?faculty=26`);
+                 const groupsData = await groupsResp.json();
+                 const groups = groupsData.groups || [];
+          @@ -67,6 +82,9 @@ export async function login(username, password) {
+                 if (found) {
+                   await AsyncStorage.setItem('savedGroupId', found.id);
+                   await AsyncStorage.setItem('savedGroupName', found.name);
+          +      } else {
+          +        await AsyncStorage.removeItem('savedGroupId');
+          +        await AsyncStorage.setItem('savedGroupName', data.group_name);
+                 }
+               } catch (e) {}
+             }
+          diff --git a/src/services/recordBookService.js b/src/services/recordBookService.js
+          index 3c984877..254f9211 100644
+          --- a/src/services/recordBookService.js
+          +++ b/src/services/recordBookService.js
+          @@ -1,135 +1,37 @@
+          -// =========================
+          -// RECORD BOOK SERVICE — зачётная книжка
+          -// Сначала пробуем страницу личного кабинета, если прокси ещё не обновлён —
+          -// собираем книжку из журнала, чтобы экран не оставался пустым.
+          -// =========================
+          -import AsyncStorage from '@react-native-async-storage/async-storage';
+          +// Official record-book data only. Journal marks have a different meaning and
+          +// must never be presented as a substitute for the student's official statement.
+           import { saveCache, loadCache, cacheKey } from './cacheService';
+          -import { fetchSubjects, fetchGrades } from './subjectsService';
+           
+           const PROXY_URL = 'https://uust-proxy.onrender.com';
+          -
+          -function semesterTitle(raw) {
+          -  const value = String(raw || '').trim();
+          -  const match = value.match(/(\d+)\s*(семестр|сем\.)/i) || value.match(/^(\d+)$/);
+          -  if (match) return `${match[1]} семестр`;
+          -  return value || 'Дисциплины';
+          -}
+          -
+          -function semesterOrder(title) {
+          -  const match = String(title || '').match(/\d+/);
+          -  return match ? Number(match[0]) : 99;
+          -}
+          -
+          -function averageOf(grades) {
+          -  const numbers = grades
+          -    .map((grade) => parseInt(String(grade).trim(), 10))
+          -    .filter((number) => number >= 2 && number <= 5);
+          -  if (!numbers.length) return null;
+          -  return numbers.reduce((sum, number) => sum + number, 0) / numbers.length;
+          -}
+          +const SCHEMA_VERSION = 2;
+           
+           async function fetchFromLk() {
+             const resp = await fetch(`${PROXY_URL}/api/recordbook`);
+             if (resp.status === 401) throw new Error('auth');
+             const text = await resp.text();
+             let data;
+          -  try { data = JSON.parse(text); } catch { throw new Error('Сервер не отвечает'); }
+          +  try { data = JSON.parse(text); } catch { throw new Error('Сервер вернул некорректный ответ'); }
+             if (data.error === 'auth') throw new Error('auth');
+          -  if (data.error) throw new Error(data.error);
+          -  return { ...data, source: 'lk' };
+          -}
+          -
+          -async function buildFromJournal() {
+          -  const subjectsResult = await fetchSubjects();
+          -  const subjects = subjectsResult.data || [];
+          -  if (!subjects.length) return null;
+          -
+          -  const groupName = await AsyncStorage.getItem('savedGroupName');
+          -  const results = await Promise.allSettled(subjects.map((subject) => fetchGrades(subject.url)));
+          -
+          -  const semesters = new Map();
+          -  const allGrades = [];
+          -  let debts = 0;
+          -
+          -  subjects.forEach((subject, index) => {
+          -    const result = results[index];
+          -    const lessons = result.status === 'fulfilled' ? result.value.data || [] : [];
+          -    const gradeValues = lessons
+          -      .map((lesson) => String(lesson.grade || '').trim())
+          -      .filter((grade) => grade && grade !== '-');
+          -    const average = averageOf(gradeValues);
+          -
+          -    gradeValues.forEach((grade) => {
+          -      allGrades.push(grade);
+          -      if (String(grade).trim() === '2') debts += 1;
+          -    });
+          -
+          -    const title = semesterTitle(subject.semestr);
+          -    if (!semesters.has(title)) semesters.set(title, []);
+          -    semesters.get(title).push({
+          -      name: subject.name || 'Дисциплина',
+          -      teacher: subject.teacher || '',
+          -      control: '',
+          -      date: '',
+          -      grade: '',
+          -      average: average != null ? average.toFixed(2) : '',
+          -      credits: '',
+          -      hours: '',
+          -    });
+          -  });
+          -
+          -  const sorted = [...semesters.entries()]
+          -    .map(([title, disciplines]) => ({ title, disciplines }))
+          -    .sort((a, b) => semesterOrder(a.title) - semesterOrder(b.title));
+          -
+          -  const average = averageOf(allGrades);
+          -  return {
+          -    student: {
+          -      name: '',
+          -      group: groupName || '',
+          -      faculty: '',
+          -      recordBook: '',
+          -    },
+          -    semesters: sorted,
+          -    summary: {
+          -      average: average != null ? Number(average.toFixed(2)) : null,
+          -      credits: null,
+          -      debts,
+          -      total: subjects.length,
+          -    },
+          -    source: 'journal',
+          -  };
+          +  if (!resp.ok || data.error) throw new Error(data.error || `Ошибка сервера (${resp.status})`);
+          +  if (!Array.isArray(data.semesters) || data.schemaVersion !== SCHEMA_VERSION || data.source !== 'lk') {
+          +    throw new Error('Сервер зачётки ещё не обновлён. Попробуйте позже.');
+          +  }
+          +  return data;
+           }
+           
+           export async function fetchRecordBook() {
+             const key = cacheKey('recordbook');
+          -
+             try {
+               const data = await fetchFromLk();
+               await saveCache(key, data);
+               return { data, fromCache: false, source: 'lk' };
+             } catch (error) {
+               if (error.message === 'auth') throw error;
+          -
+          -    try {
+          -      const data = await buildFromJournal();
+          -      if (data && data.semesters.length) {
+          -        await saveCache(key, data);
+          -        return { data, fromCache: false, source: 'journal' };
+          -      }
+          -    } catch (journalError) {
+          -      if (journalError.message === 'auth') throw journalError;
+          -    }
+          -
+               const cached = await loadCache(key);
+          -    if (cached) {
+          -      return {
+          -        data: cached.data,
+          -        fromCache: true,
+          -        cacheAge: cached.age,
+          -        source: cached.data?.source || 'lk',
+          -      };
+          +    // Reject old schema and journal-derived values rather than showing invented
+          +    // grades from another endpoint as though they came from the official book.
+          +    if (cached?.data?.schemaVersion === SCHEMA_VERSION && cached.data.source === 'lk') {
+          +      return { data: cached.data, fromCache: true, cacheAge: cached.age, source: 'lk' };
+               }
+               throw error;
+             }
+          diff --git a/tests/test_recordbook_parser.py b/tests/test_recordbook_parser.py
+          new file mode 100644
+          index 00000000..d63c9deb
+          --- /dev/null
+          +++ b/tests/test_recordbook_parser.py
+          @@ -0,0 +1,74 @@
+          +import unittest
+          +from bs4 import BeautifulSoup
+          +from recordbook_parser import _columns, _parse_statement, _statement_summary
+          +
+          +
+          +PAGE = '''<!doctype html><html lang="ru"><body>
+          +<nav><a href="#grades">Электронная зачетная книжка</a>
+          +<a href="#archive">Архив оценок</a></nav>
+          +<div id="grades">
+          +<p>Рейтинг студента: 0</p><p>Средний балл: 4,82</p>
+          +<h3>1 курс 1 семестр</h3>
+          +<table><tr><th>Дисциплина</th><th>Вид контроля</th><th>Кол-во часов</th>
+          +<th>Преподаватель</th><th>Курс</th><th>Семестр</th><th>Дата</th><th>Оценка</th></tr>
+          +<tr><td>Физическая культура (ОК 01, ОК 02)</td><td>Зачет с оценкой</td><td>/36</td>
+          +<td>Саламагареева Г.М.</td><td>1</td><td>1</td><td>20.12.2024</td><td>Зачтено</td></tr>
+          +<tr><td>Математика</td><td>Экзамен</td><td>/108</td><td>Сагадеева Э.А.</td>
+          +<td>1</td><td>1</td><td>27.12.2024</td><td>Отлично</td></tr>
+          +<tr><td>История</td><td>Экзамен</td><td>/72</td><td>Сагадеева Э.А.</td>
+          +<td>1</td><td>1</td><td>27.12.2024</td><td>4</td></tr></table>
+          +<h3>2 курс 3 семестр</h3>
+          +<table><tr><th>Дисциплина</th><th>Вид контроля</th><th>Кол-во часов</th>
+          +<th>Преподаватель</th><th>Курс</th><th>Семестр</th><th>Дата</th><th>Оценка</th></tr>
+          +<tr><td>Физика</td><td>Экзамен</td><td>/104</td><td>Касимов Р.А.</td>
+          +<td>2</td><td>3</td><td>30.06.2025</td><td>Удовлетворительно</td></tr></table>
+          +</div>
+          +<div id="archive"><h3>Архив</h3><table><tr><th>Дисциплина</th><th>Оценка</th></tr>
+          +<tr><td>Архивная оценка</td><td>5</td></tr></table></div>
+          +</body></html>'''
+          +
+          +
+          +class RecordBookParserTests(unittest.TestCase):
+          +    def setUp(self):
+          +        self.soup = BeautifulSoup(PAGE, 'lxml')
+          +
+          +    def test_distinguishes_course_from_semester_and_groups(self):
+          +        student, groups = _parse_statement(self.soup)
+          +        self.assertEqual([(g['course'], g['semester']) for g in groups], [(1, 1), (2, 3)])
+          +        self.assertEqual(groups[0]['title'], '1 курс · 1 семестр')
+          +        self.assertEqual(groups[1]['disciplines'][0]['name'], 'Физика')
+          +
+          +    def test_keeps_every_official_field_and_grade_type(self):
+          +        item = _parse_statement(self.soup)[1][1]['disciplines'][0]
+          +        self.assertEqual(item['control'], 'Экзамен')
+          +        self.assertEqual(item['hours'], '/104')
+          +        self.assertEqual(item['teacher'], 'Касимов Р.А.')
+          +        self.assertEqual(item['date'], '30.06.2025')
+          +        self.assertEqual(item['grade'], 'Удовлетворительно')
+          +        self.assertEqual(item['numericGrade'], 3)
+          +
+          +    def test_does_not_mix_archive_and_preserves_repeated_names(self):
+          +        _, groups = _parse_statement(self.soup)
+          +        all_names = [d['name'] for g in groups for d in g['disciplines']]
+          +        self.assertNotIn('Архивная оценка', all_names)
+          +        self.assertEqual(len(all_names), 4)
+          +
+          +    def test_site_average_and_rating_are_authoritative(self):
+          +        _, groups = _parse_statement(self.soup)
+          +        summary = _statement_summary(groups, self.soup)
+          +        self.assertEqual(summary['average'], 4.82)
+          +        self.assertEqual(summary['averageSource'], 'site')
+          +        self.assertEqual(summary['rating'], 0)
+          +        self.assertEqual(summary['total'], 4)
+          +        self.assertIsNone(summary['debts'])
+          +
+          +    def test_header_wrapping_still_finds_named_columns(self):
+          +        indexes = _columns(['Дисциплина', 'Вид контроля', 'Кол-во\nчасов',
+          +                            'Преподаватель', 'Курс', 'Семестр', 'Дата', 'Оценка'])
+          +        self.assertEqual(indexes['course'], 4)
+          +        self.assertEqual(indexes['semester'], 5)
+          +        self.assertEqual(indexes['grade'], 7)
+          +
+          +
+          +if __name__ == '__main__':
+          +    unittest.main()
+          REVIEWED_PATCH
+          git apply --check /tmp/test-changes.patch
+          git apply /tmp/test-changes.patch
+          git diff --stat
+          python -m unittest discover -s tests -v
+          rm -f .env .env.*
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Configure separate test application
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const a = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          a.expo.name = 'uust-app Test';
+          a.expo.android.package = 'com.exile37.uustjournal.test';
+          fs.writeFileSync('app.json', JSON.stringify(a, null, 2));
+          NODE
+          CI=1 npx expo prebuild --platform android --no-install --clean
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+      - name: Build standalone test APK with generated debug signature
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g'
+      - name: Verify signature and metadata
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BT=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/aapt" dump badging "$APK"
+          mkdir -p artifacts
+          cp "$APK" artifacts/uust-journal-1.3.0-test-arm64.apk
+          sha256sum artifacts/*.apk > artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uust-journal-test-apk
+          path: artifacts/
+          retention-days: 14
