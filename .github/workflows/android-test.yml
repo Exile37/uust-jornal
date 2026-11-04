@@ -1090,7 +1090,9 @@ jobs:
           git apply --check /tmp/test-changes.patch
           git apply /tmp/test-changes.patch
           git diff --stat
-          python -m unittest discover -s tests -v
+          python -m venv /tmp/parser-tests
+          /tmp/parser-tests/bin/pip install beautifulsoup4
+          /tmp/parser-tests/bin/python -m unittest discover -s tests -v
           rm -f .env .env.*
       - uses: actions/setup-node@v4
         with:
