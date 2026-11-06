@@ -6,6 +6,14 @@ import {
 import { fetchSubjects } from '../services/subjectsService';
 import { logout } from '../services/authService';
 import OfflineBanner from '../components/OfflineBanner';
+import Chevron from '../components/Chevron';
+import { colors, layout, radius } from '../theme';
+
+function semesterLabel(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return /семестр/i.test(text) ? text : `${text} семестр`;
+}
 
 export default function SubjectsScreen({ onSelectSubject, onLogout }) {
   const [subjects, setSubjects] = useState([]);
@@ -35,44 +43,124 @@ export default function SubjectsScreen({ onSelectSubject, onLogout }) {
     return subjects.filter(s => `${s.name || ''} ${s.teacher || ''} ${s.semestr || ''}`.toLowerCase().includes(q));
   }, [subjects, search]);
 
-  function renderItem({ item }) {
-    return <TouchableOpacity style={styles.card} onPress={() => onSelectSubject(item)} activeOpacity={0.75}>
-      <View style={styles.cardTop}><Text style={styles.subjectName} numberOfLines={2}>{item.name}</Text><Text style={styles.chevron}>›</Text></View>
-      <View style={styles.row}>
-        <View style={styles.badge}><Text style={styles.badgeText}>{item.semestr || '—'}</Text></View>
-        <Text style={styles.teacher} numberOfLines={1}>{item.teacher || 'Преподаватель не указан'}</Text>
-      </View>
-    </TouchableOpacity>;
+  function renderItem({ item, index }) {
+    const first = index === 0;
+    const last = index === filtered.length - 1;
+    const meta = [semesterLabel(item.semestr), item.teacher].filter(Boolean).join(' · ');
+
+    return (
+      <TouchableOpacity
+        style={[styles.row, first && styles.rowFirst, last && styles.rowLast, index > 0 && styles.rowDivider]}
+        onPress={() => onSelectSubject(item)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.rowBody}>
+          <View style={styles.rowTop}>
+            <Text style={styles.subjectName} numberOfLines={2}>{item.name}</Text>
+            <Chevron direction="right" size={7} />
+          </View>
+          <Text style={styles.meta} numberOfLines={1}>
+            {meta || 'Преподаватель не указан'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
   }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loadingText}>Загружаем предметы...</Text></View>;
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="small" color={colors.accent} />
+        <Text style={styles.loadingText}>Загрузка</Text>
+      </View>
+    );
+  }
 
-  return <View style={styles.container}>
-    <View style={styles.header}>
-      <View><Text style={styles.eyebrow}>ЖУРНАЛ</Text><Text style={styles.headerTitle}>Мои предметы</Text></View>
-      <TouchableOpacity onPress={() => { logout(); onLogout(); }} style={styles.logoutBtn}><Text style={styles.logoutText}>Выйти</Text></TouchableOpacity>
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Предметы</Text>
+        <TouchableOpacity onPress={() => { logout(); onLogout(); }} style={styles.logout} activeOpacity={0.7}>
+          <Text style={styles.logoutText}>Выйти</Text>
+        </TouchableOpacity>
+      </View>
+
+      <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
+
+      <View style={styles.searchWrap}>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Поиск"
+          placeholderTextColor={colors.muted}
+          style={styles.search}
+        />
+      </View>
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(item, i) => item.url || String(i)}
+        renderItem={renderItem}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadSubjects(); }} tintColor={colors.accent} />}
+        ListEmptyComponent={(
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>{search ? 'Ничего не найдено' : 'Предметы не найдены'}</Text>
+            <Text style={styles.emptyText}>{search ? 'Попробуйте другое название' : 'Потяните вниз, чтобы обновить'}</Text>
+          </View>
+        )}
+      />
     </View>
-    <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
-    <View style={styles.searchWrap}><Text style={styles.searchIcon}>⌕</Text><TextInput value={search} onChangeText={setSearch} placeholder="Поиск предмета или преподавателя" placeholderTextColor="#65798d" style={styles.search} /></View>
-    <FlatList
-      data={filtered} keyExtractor={(item, i) => item.url || String(i)} renderItem={renderItem}
-      contentContainerStyle={styles.list}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadSubjects(); }} tintColor="#4fc3f7" />}
-      ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTitle}>{search ? 'Ничего не найдено' : 'Предметы не найдены'}</Text><Text style={styles.emptyText}>{search ? 'Попробуйте другое название.' : 'Потяните вниз, чтобы обновить.'}</Text></View>}
-    />
-  </View>;
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16 },
-  eyebrow: { color: '#4fc3f7', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  headerTitle: { fontSize: 25, fontWeight: '800', color: '#e8f4fd', marginTop: 2 },
-  logoutBtn: { paddingHorizontal: 13, paddingVertical: 8, backgroundColor: '#132233', borderRadius: 9, borderWidth: 1, borderColor: '#1e3a4f' }, logoutText: { color: '#ef5350', fontSize: 12, fontWeight: '700' },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10, backgroundColor: '#132233', borderRadius: 12, borderWidth: 1, borderColor: '#1e3a4f', paddingHorizontal: 12 }, searchIcon: { color: '#4fc3f7', fontSize: 20 }, search: { flex: 1, color: '#e8f4fd', paddingVertical: 12, paddingHorizontal: 8, fontSize: 13 },
-  list: { padding: 16, paddingTop: 6, paddingBottom: 32 },
-  card: { backgroundColor: '#132233', borderRadius: 15, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: '#1e3a4f' },
-  cardTop: { flexDirection: 'row', alignItems: 'flex-start' }, subjectName: { flex: 1, fontSize: 15, fontWeight: '750', color: '#e8f4fd', lineHeight: 21 }, chevron: { color: '#4fc3f7', fontSize: 25, lineHeight: 20, marginLeft: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 11 }, badge: { backgroundColor: '#0d355c', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }, badgeText: { color: '#90caf9', fontSize: 11, fontWeight: '700' }, teacher: { color: '#8a9bb0', fontSize: 12, flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 }, loadingText: { color: '#8a9bb0', marginTop: 12, fontSize: 14 }, emptyTitle: { color: '#c8ddf0', fontSize: 15, fontWeight: '700' }, emptyText: { color: '#71859b', fontSize: 12, marginTop: 5 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: layout.page,
+    paddingTop: layout.top,
+    paddingBottom: 12,
+  },
+  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: '600' },
+  logout: { paddingVertical: 6, paddingLeft: 12 },
+  logoutText: { color: colors.text2, fontSize: 13, lineHeight: 17, fontWeight: '500' },
+
+  searchWrap: { paddingHorizontal: layout.page, paddingTop: 12 },
+  search: {
+    height: 44,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: colors.text,
+  },
+
+  list: { paddingHorizontal: layout.page, paddingTop: 12, paddingBottom: 32, flexGrow: 1 },
+  row: {
+    backgroundColor: colors.surface,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  rowFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  rowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  rowBody: { flex: 1 },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  subjectName: { flex: 1, color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  meta: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  loadingText: { color: colors.muted, fontSize: 13, marginTop: 12 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
+  emptyTitle: { color: colors.text2, fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  emptyText: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
 });

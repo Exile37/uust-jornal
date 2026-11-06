@@ -6,49 +6,44 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/scheduleService';
 import OfflineBanner from '../components/OfflineBanner';
+import Chevron from '../components/Chevron';
+import { colors, layout, radius } from '../theme';
 
 const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
-function typeColor(type) {
+function typeInfo(type) {
   if (!type) return null;
   const t = type.toLowerCase();
-  if (t.includes('лек')) return { bg: '#1a237e', text: '#82b1ff', label: 'Лекция' };
-  if (t.includes('тест') || t.includes('фэпо')) return { bg: '#b71c1c', text: '#ff8a80', label: type };
-  if (t.includes('пр') || t.includes('прак')) return { bg: '#1b5e20', text: '#b9f6ca', label: 'Практика' };
-  if (t.includes('лаб')) return { bg: '#4a148c', text: '#ea80fc', label: 'Лаб. работа' };
-  return { bg: '#1e3a4f', text: '#90caf9', label: type };
+  if (t.includes('лек')) return { dot: '#7fa3c9', label: 'Лекция' };
+  if (t.includes('лаб')) return { dot: colors.warn, label: 'Лаб. работа' };
+  if (t.includes('пр') || t.includes('прак')) return { dot: colors.good, label: 'Практика' };
+  if (t.includes('тест') || t.includes('фэпо')) return { dot: colors.bad, label: type };
+  return { dot: colors.muted, label: type };
 }
 
 function LessonCard({ lesson, isToday }) {
-  const tc = lesson.type ? typeColor(lesson.type) : null;
+  const tc = typeInfo(lesson.type);
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const match = String(lesson.time || '').match(/(\d{1,2})\D+(\d{2})/);
   const lessonMinutes = match ? Number(match[1]) * 60 + Number(match[2]) : -1;
   const isCurrent = isToday && lessonMinutes >= 0 && Math.abs(lessonMinutes - currentMinutes) <= 50;
-  
+  const meta = [lesson.room ? `каб. ${lesson.room}` : '', lesson.teacher].filter(Boolean).join(' · ');
+
   return (
-    <View style={[styles.lessonCard, isCurrent && styles.lessonCardCurrent]}>
+    <View style={styles.lessonCard}>
+      {isCurrent ? <View style={styles.lessonRule} /> : null}
       <View style={styles.lessonTop}>
-        <View style={styles.lessonNumBox}>
-          <Text style={styles.lessonNumText}>{lesson.num}</Text>
-        </View>
-        <Text style={styles.lessonTime}>{lesson.time}</Text>
-        {tc && (
-          <View style={[styles.typeTag, { backgroundColor: tc.bg }]}>
-            <Text style={[styles.typeText, { color: tc.text }]}>{tc.label}</Text>
-          </View>
-        )}
-        {lesson.room ? (
-          <View style={styles.roomTag}>
-            <Text style={styles.roomText}>🚪 {lesson.room}</Text>
+        <Text style={styles.lessonTime}>{lesson.time || '—'}</Text>
+        {tc ? (
+          <View style={styles.type}>
+            <View style={[styles.typeDot, { backgroundColor: tc.dot }]} />
+            <Text style={styles.typeText} numberOfLines={1}>{tc.label}</Text>
           </View>
         ) : null}
       </View>
-      <Text style={styles.lessonSubject}>{lesson.subject}</Text>
-      {lesson.teacher ? (
-        <Text style={styles.lessonTeacher}>👤 {lesson.teacher}</Text>
-      ) : null}
+      <Text style={styles.lessonSubject}>{lesson.subject || 'Занятие'}</Text>
+      {meta ? <Text style={styles.lessonMeta} numberOfLines={1}>{meta}</Text> : null}
     </View>
   );
 }
@@ -126,6 +121,7 @@ export default function ScheduleScreen() {
     setSearchText('');
     setFilteredGroups(groups);
     AsyncStorage.setItem('savedGroupId', group.id);
+    AsyncStorage.setItem('savedGroupName', group.name);
     loadSchedule(group.id, 0);
   }
 
@@ -158,21 +154,21 @@ export default function ScheduleScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Шапка */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Расписание</Text>
       </View>
 
-      {/* Выбор группы */}
-      <TouchableOpacity style={styles.groupSelector} onPress={() => setShowPicker(true)}>
-        <Text style={styles.groupSelectorText}>
-          {selectedGroup ? selectedGroup.name : 'Выбрать группу'}
-        </Text>
-        <Text style={styles.groupSelectorArrow}>▼</Text>
+      <TouchableOpacity style={styles.groupSelector} onPress={() => setShowPicker(true)} activeOpacity={0.8}>
+        <Text style={styles.groupLabel}>Группа</Text>
+        <View style={styles.groupValue}>
+          <Text style={styles.groupName} numberOfLines={1}>
+            {selectedGroup ? selectedGroup.name : 'Выбрать'}
+          </Text>
+          <Chevron direction="down" size={7} />
+        </View>
       </TouchableOpacity>
 
-      {/* Модалка выбора группы */}
-      <Modal visible={showPicker} animationType="slide" transparent>
+      <Modal visible={showPicker} animationType="slide" transparent onRequestClose={() => setShowPicker(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
@@ -181,35 +177,40 @@ export default function ScheduleScreen() {
                 setShowPicker(false);
                 setSearchText('');
                 setFilteredGroups(groups);
-              }}>
-                <Text style={styles.modalClose}>✕</Text>
+              }} activeOpacity={0.7}>
+                <Text style={styles.modalClose}>Закрыть</Text>
               </TouchableOpacity>
             </View>
             <TextInput
               style={styles.modalSearch}
-              placeholder="Поиск группы..."
-              placeholderTextColor="#8a9bb0"
+              placeholder="Поиск группы"
+              placeholderTextColor={colors.muted}
               value={searchText}
               onChangeText={handleSearch}
               autoFocus
             />
             {loadingGroups ? (
-              <ActivityIndicator color="#4fc3f7" style={{ margin: 20 }} />
+              <ActivityIndicator color={colors.accent} style={styles.modalLoading} />
             ) : (
               <FlatList
                 data={filteredGroups}
                 keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.groupItem, selectedGroup?.id === item.id && styles.groupItemActive]}
-                    onPress={() => handleSelectGroup(item)}
-                  >
-                    <Text style={[styles.groupItemText, selectedGroup?.id === item.id && styles.groupItemTextActive]}>
-                      {item.name}
-                    </Text>
-                    {selectedGroup?.id === item.id && <Text style={styles.checkmark}>✓</Text>}
-                  </TouchableOpacity>
-                )}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => {
+                  const active = selectedGroup?.id === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={styles.groupItem}
+                      onPress={() => handleSelectGroup(item)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.groupItemText, active && styles.groupItemTextActive]}>
+                        {item.name}
+                      </Text>
+                      {active ? <View style={styles.groupItemDot} /> : null}
+                    </TouchableOpacity>
+                  );
+                }}
               />
             )}
           </View>
@@ -218,31 +219,30 @@ export default function ScheduleScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#4fc3f7" />
-          <Text style={styles.loadingText}>Загружаем расписание...</Text>
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={styles.loadingText}>Загрузка</Text>
         </View>
       ) : schedule ? (
-        <View style={{ flex: 1 }}>
-          {/* Навигация по неделям */}
+        <View style={styles.flex}>
           <View style={styles.weekNav}>
-            <TouchableOpacity style={styles.weekBtn} onPress={() => changeWeek(-1)}>
-              <Text style={styles.weekBtnText}>← Пред.</Text>
+            <TouchableOpacity style={styles.weekBtn} onPress={() => changeWeek(-1)} activeOpacity={0.7}>
+              <Chevron direction="left" size={6} color={colors.text2} />
+              <Text style={styles.weekBtnText}>Пред.</Text>
             </TouchableOpacity>
-            <Text style={styles.weekTitle} numberOfLines={1}>{weekHeader}</Text>
-            <TouchableOpacity style={styles.weekBtn} onPress={() => changeWeek(1)}>
-              <Text style={styles.weekBtnText}>След. →</Text>
+            <Text style={styles.weekTitle} numberOfLines={1}>{weekHeader || 'Неделя'}</Text>
+            <TouchableOpacity style={styles.weekBtn} onPress={() => changeWeek(1)} activeOpacity={0.7}>
+              <Text style={styles.weekBtnText}>След.</Text>
+              <Chevron direction="right" size={6} color={colors.text2} />
             </TouchableOpacity>
           </View>
 
-          {/* Офлайн баннер */}
           <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
-          {/* Лента: все дни недели подряд */}
           <ScrollView contentContainerStyle={styles.feed}>
             {!hasAnyLesson ? (
               <View style={styles.emptyWeek}>
-                <Text style={styles.emptyText}>На эту неделю занятий нет</Text>
-                <Text style={styles.emptySubText}>Проверьте другую неделю или группу</Text>
+                <Text style={styles.emptyTitle}>На этой неделе пар нет</Text>
+                <Text style={styles.emptyText}>Проверьте другую неделю или группу</Text>
               </View>
             ) : days.map((day, index) => {
               const lessons = day?.lessons || [];
@@ -250,17 +250,13 @@ export default function ScheduleScreen() {
               return (
                 <View key={`${day?.name || index}-${index}`} style={styles.daySection}>
                   <View style={styles.dayHeader}>
-                    <View style={styles.dayHeaderLeft}>
+                    <View>
                       <Text style={[styles.dayName, isToday && styles.dayNameToday]}>
                         {day?.name || DAYS_FULL[index] || DAYS_SHORT[index] || `День ${index + 1}`}
                       </Text>
-                      {isToday ? (
-                        <View style={styles.todayBadge}>
-                          <Text style={styles.todayBadgeText}>СЕГОДНЯ</Text>
-                        </View>
-                      ) : null}
+                      {isToday ? <View style={styles.todayRule} /> : null}
                     </View>
-                    <Text style={styles.dayMeta}>
+                    <Text style={styles.dayMeta} numberOfLines={1}>
                       {day?.header || (lessons.length ? `${lessons.length} ${pluralLessons(lessons.length)}` : '')}
                     </Text>
                   </View>
@@ -268,9 +264,7 @@ export default function ScheduleScreen() {
                   {lessons.length ? lessons.map((lesson, i) => (
                     <LessonCard key={`${lesson.time}-${i}`} lesson={lesson} isToday={isToday} />
                   )) : (
-                    <View style={styles.dayEmpty}>
-                      <Text style={styles.dayEmptyText}>Занятий нет</Text>
-                    </View>
+                    <Text style={styles.dayEmpty}>Пар нет</Text>
                   )}
                 </View>
               );
@@ -279,8 +273,8 @@ export default function ScheduleScreen() {
         </View>
       ) : !selectedGroup ? (
         <View style={styles.center}>
-          <Text style={styles.hintEmoji}>👆</Text>
-          <Text style={styles.hintText}>Выберите группу выше</Text>
+          <Text style={styles.emptyTitle}>Выберите группу</Text>
+          <Text style={styles.emptyText}>Список групп открывается по нажатию на строку выше</Text>
         </View>
       ) : null}
     </View>
@@ -288,92 +282,131 @@ export default function ScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' },
-  header: {
-    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
-    backgroundColor: '#132233', borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
-  },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#e8f4fd' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
+
+  header: { paddingHorizontal: layout.page, paddingTop: layout.top, paddingBottom: 12 },
+  headerTitle: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: '600' },
+
   groupSelector: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    margin: 14, backgroundColor: '#132233', borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: '#1e3a4f',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    height: 52,
+    marginHorizontal: layout.page,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
   },
-  groupSelectorText: { color: '#e8f4fd', fontSize: 16, fontWeight: '600' },
-  groupSelectorArrow: { color: '#4fc3f7', fontSize: 12 },
-  modalOverlay: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' },
+  groupLabel: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  groupValue: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
+  groupName: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '500', flexShrink: 1 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: '#132233', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    maxHeight: '80%', paddingBottom: 30,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    maxHeight: '80%',
+    paddingBottom: 24,
   },
   modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 20, borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: layout.page,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  modalTitle: { color: '#e8f4fd', fontSize: 18, fontWeight: '700' },
-  modalClose: { color: '#8a9bb0', fontSize: 20 },
+  modalTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  modalClose: { color: colors.text2, fontSize: 13, lineHeight: 17, fontWeight: '500' },
   modalSearch: {
-    backgroundColor: '#0d1b2a', margin: 14, borderRadius: 10,
-    padding: 12, color: '#e8f4fd', fontSize: 15,
-    borderWidth: 1, borderColor: '#1e3a4f',
+    height: 44,
+    marginHorizontal: layout.page,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.raised,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    color: colors.text,
+    fontSize: 14,
   },
+  modalLoading: { marginVertical: 24 },
   groupItem: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#0d1b2a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 48,
+    paddingHorizontal: layout.page,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  groupItemActive: { backgroundColor: '#1565c022' },
-  groupItemText: { color: '#c8ddf0', fontSize: 15 },
-  groupItemTextActive: { color: '#4fc3f7', fontWeight: '700' },
-  checkmark: { color: '#4fc3f7', fontSize: 16, fontWeight: '700' },
+  groupItemText: { color: colors.text2, fontSize: 15, lineHeight: 20 },
+  groupItemTextActive: { color: colors.accent, fontWeight: '500' },
+  groupItemDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
+
   weekNav: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 8,
-    backgroundColor: '#0f2030', borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: layout.page,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  weekBtn: { paddingHorizontal: 10, paddingVertical: 6 },
-  weekBtnText: { color: '#4fc3f7', fontSize: 13, fontWeight: '600' },
-  weekTitle: { color: '#8a9bb0', fontSize: 12, flex: 1, textAlign: 'center' },
-  feed: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 32 },
-  daySection: { marginTop: 14 },
+  weekBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  weekBtnText: { color: colors.text2, fontSize: 12, lineHeight: 16, fontWeight: '500' },
+  weekTitle: { color: colors.muted, fontSize: 12, lineHeight: 16, flex: 1, textAlign: 'center' },
+
+  feed: { paddingHorizontal: layout.page, paddingTop: 4, paddingBottom: 32 },
+  daySection: { marginTop: 20 },
   dayHeader: {
-    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
-    paddingHorizontal: 4, marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
   },
-  dayHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dayName: { color: '#8a9bb0', fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
-  dayNameToday: { color: '#4fc3f7' },
-  todayBadge: { backgroundColor: '#1565c0', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  todayBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
-  dayMeta: { color: '#5f7488', fontSize: 11, fontWeight: '600' },
-  dayEmpty: {
-    backgroundColor: '#0f2030', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14,
-    borderWidth: 1, borderColor: '#17293a',
-  },
-  dayEmptyText: { color: '#5f7488', fontSize: 12 },
-  lessonCardCurrent: { borderLeftColor: '#4fc3f7', borderWidth: 1, borderColor: '#1e4d67' },
+  dayName: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '600' },
+  dayNameToday: { color: colors.accent },
+  todayRule: { width: 16, height: 2, borderRadius: 1, backgroundColor: colors.accent, marginTop: 4 },
+  dayMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, flexShrink: 1, textAlign: 'right' },
+  dayEmpty: { color: colors.muted, fontSize: 12, lineHeight: 16, paddingVertical: 6 },
+
   lessonCard: {
-    backgroundColor: '#132233', borderRadius: 12, padding: 14,
-    marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#1565c0',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 16,
+    marginBottom: 8,
+    overflow: 'hidden',
   },
-  lessonTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  lessonNumBox: {
-    backgroundColor: '#1565c0', borderRadius: 6,
-    width: 28, height: 28, justifyContent: 'center', alignItems: 'center',
+  lessonRule: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: colors.accent },
+  lessonTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  lessonTime: {
+    color: colors.text2,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
-  lessonNumText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  lessonTime: { color: '#4fc3f7', fontSize: 13, fontWeight: '700', flex: 1 },
-  roomTag: { backgroundColor: '#1e3a4f', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
-  roomText: { color: '#e8f4fd', fontSize: 13, fontWeight: '700' },
-  lessonSubject: { color: '#e8f4fd', fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: 6 },
-  lessonTeacher: { color: '#8a9bb0', fontSize: 12 },
-  typeTag: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  typeText: { fontSize: 11, fontWeight: '700' },
-  emptyWeek: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#e8f4fd', fontSize: 17, fontWeight: '700', marginBottom: 6 },
-  emptySubText: { color: '#8a9bb0', fontSize: 13 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#8a9bb0', marginTop: 12 },
-  hintEmoji: { fontSize: 40, marginBottom: 12 },
-  hintText: { color: '#8a9bb0', fontSize: 16 },
+  type: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+  typeDot: { width: 6, height: 6, borderRadius: 3 },
+  typeText: { color: colors.muted, fontSize: 12, lineHeight: 16, flexShrink: 1 },
+  lessonSubject: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '500', marginTop: 6 },
+  lessonMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  emptyWeek: { alignItems: 'center', paddingTop: 48 },
+  emptyTitle: { color: colors.text, fontSize: 16, lineHeight: 21, fontWeight: '600' },
+  emptyText: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 6, textAlign: 'center' },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  loadingText: { color: colors.muted, fontSize: 13, marginTop: 12 },
 });

@@ -7,6 +7,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchSubjects, fetchGrades } from '../services/subjectsService';
 import { fetchSchedule } from '../services/scheduleService';
 import OfflineBanner from '../components/OfflineBanner';
+import StatStrip from '../components/StatStrip';
+import Chevron from '../components/Chevron';
+import { colors, layout, radius } from '../theme';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -36,6 +39,11 @@ function formatCache(age) {
   if (age == null) return '';
   if (age < 60) return `${age} мин. назад`;
   return `${Math.floor(age / 60)} ч. назад`;
+}
+
+function formatAverage(value) {
+  if (value == null || value === '') return '—';
+  return String(value).replace('.', ',');
 }
 
 export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpenSchedule, onOpenSettings }) {
@@ -101,129 +109,244 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
     : null;
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loading}>Собираем ваш день...</Text></View>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="small" color={colors.accent} />
+        <Text style={styles.loading}>Загрузка</Text>
+      </View>
+    );
   }
+
+  const stats = [
+    { label: 'Средний балл', value: formatAverage(avg), accent: true },
+    { label: 'Оценок', value: gradeCount == null ? '—' : gradeCount },
+    { label: 'Предметов', value: subjects.length },
+  ];
 
   return (
     <View style={styles.container}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor="#4fc3f7" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.accent} />}
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>УУСТР</Text>
-            <Text style={styles.title}>Главная</Text>
-            <Text style={styles.group}>{groupName}</Text>
-          </View>
-          <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings}><Text style={styles.settingsIcon}>⚙</Text></TouchableOpacity>
+          <Text style={styles.title}>Главная</Text>
+          <Text style={styles.group}>{groupName}</Text>
         </View>
 
         <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
-        <TouchableOpacity style={styles.hero} onPress={onOpenSchedule} activeOpacity={0.85}>
-          <Text style={styles.heroLabel}>{next?.offset === 0 ? 'СЛЕДУЮЩАЯ ПАРА' : 'БЛИЖАЙШАЯ ПАРА'}</Text>
-          {next ? (
-            <>
-              <Text style={styles.heroTitle} numberOfLines={2}>{next.lesson.subject || 'Занятие'}</Text>
-              <View style={styles.heroRow}>
-                <Text style={styles.heroTime}>{next.day} · {next.lesson.time}</Text>
-                {next.lesson.room ? <Text style={styles.heroRoom}>Каб. {next.lesson.room}</Text> : null}
-              </View>
-            </>
-          ) : <Text style={styles.heroTitle}>{schedule ? 'На ближайшие дни занятий нет' : (groupName === 'Группа не выбрана' ? 'Выберите группу в расписании' : 'Расписание пока не загрузилось')}</Text>}
-        </TouchableOpacity>
+        <View style={styles.page}>
+          <TouchableOpacity style={styles.hero} onPress={onOpenSchedule} activeOpacity={0.85}>
+            <View style={styles.heroRule} />
+            <Text style={styles.heroLabel}>
+              {next ? (next.offset === 0 ? 'Следующая пара' : 'Ближайшая пара') : 'Расписание'}
+            </Text>
+            {next ? (
+              <>
+                <Text style={styles.heroTitle} numberOfLines={2}>{next.lesson.subject || 'Занятие'}</Text>
+                <Text style={styles.heroMeta} numberOfLines={1}>
+                  {[next.lesson.time, next.day, next.lesson.room ? `каб. ${next.lesson.room}` : ''].filter(Boolean).join(' · ')}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.heroEmpty}>
+                {schedule
+                  ? 'На ближайшие дни пар нет'
+                  : groupName === 'Группа не выбрана'
+                    ? 'Выберите группу в расписании'
+                    : 'Расписание пока не загрузилось'}
+              </Text>
+            )}
+          </TouchableOpacity>
 
-        <View style={styles.statsRow}>
-          <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
-            <Text style={styles.statValue}>{avg || '—'}</Text>
-            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
-            <Text style={styles.statValue}>{gradeCount == null ? '—' : gradeCount}</Text>
-            <Text style={styles.statLabel}>ОЦЕНОК</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
-            <Text style={styles.statValue}>{subjects.length}</Text>
-            <Text style={styles.statLabel}>ПРЕДМЕТОВ</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.bookCard} onPress={onOpenRecordBook} activeOpacity={0.85}>
-          <View style={styles.bookMark}><Text style={styles.bookMarkText}>▤</Text></View>
-          <View style={styles.bookInfo}>
-            <Text style={styles.bookTitle}>Зачётная книжка</Text>
-            <Text style={styles.bookText}>Итоговые оценки по семестрам</Text>
+          <View style={styles.block}>
+            <StatStrip items={stats} />
           </View>
-          <Text style={styles.bookArrow}>›</Text>
-        </TouchableOpacity>
 
-        <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Сегодня</Text><TouchableOpacity onPress={onOpenSchedule}><Text style={styles.more}>Все →</Text></TouchableOpacity></View>
-        {todayLessons === null ? (
-          <TouchableOpacity style={styles.empty} onPress={onOpenSchedule}><Text style={styles.emptyTitle}>День пока не загружен</Text><Text style={styles.emptyText}>Откройте расписание и попробуйте обновить.</Text></TouchableOpacity>
-        ) : todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
-          <TouchableOpacity key={`${lesson.time}-${i}`} style={styles.lessonRow} onPress={onOpenSchedule}>
-            <View style={styles.timeCol}><Text style={styles.lessonTime}>{lesson.time || '—'}</Text><Text style={styles.lessonNum}>Пара {lesson.num || i + 1}</Text></View>
-            <View style={styles.lessonInfo}><Text style={styles.lessonName} numberOfLines={1}>{lesson.subject || 'Занятие'}</Text><Text style={styles.lessonMeta}>{lesson.room ? `Каб. ${lesson.room}` : 'Аудитория не указана'}{lesson.teacher ? ` · ${lesson.teacher}` : ''}</Text></View>
+          <TouchableOpacity style={styles.bookRow} onPress={onOpenRecordBook} activeOpacity={0.85}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>Зачётная книжка</Text>
+              <Text style={styles.rowMeta}>Итоговые оценки по семестрам</Text>
+            </View>
+            <Chevron direction="right" size={7} />
           </TouchableOpacity>
-        )) : <View style={styles.empty}><Text style={styles.emptyTitle}>Свободный день</Text><Text style={styles.emptyText}>Можно выдохнуть и закрыть хвосты.</Text></View>}
 
-        <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Быстрые действия</Text></View>
-        <View style={styles.quickGrid}>
-          <TouchableOpacity style={styles.quickCard} onPress={onOpenGrades}><Text style={styles.quickIcon}>★</Text><Text style={styles.quickTitle}>Оценки</Text><Text style={styles.quickText}>Предметы и успеваемость</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.quickCard} onPress={onOpenSchedule}><Text style={styles.quickIcon}>▦</Text><Text style={styles.quickTitle}>Расписание</Text><Text style={styles.quickText}>Неделя и пары</Text></TouchableOpacity>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Сегодня</Text>
+            <TouchableOpacity style={styles.link} onPress={onOpenSchedule} activeOpacity={0.7}>
+              <Text style={styles.linkText}>Вся неделя</Text>
+              <Chevron direction="right" size={6} color={colors.accent} />
+            </TouchableOpacity>
+          </View>
+
+          {todayLessons === null ? (
+            <TouchableOpacity style={styles.emptyCard} onPress={onOpenSchedule} activeOpacity={0.85}>
+              <Text style={styles.emptyTitle}>Расписание пока не загрузилось</Text>
+              <Text style={styles.emptyText}>Откройте расписание и обновите данные</Text>
+            </TouchableOpacity>
+          ) : todayLessons.length ? (
+            <View style={styles.list}>
+              {todayLessons.slice(0, 4).map((lesson, i) => (
+                <TouchableOpacity
+                  key={`${lesson.time}-${i}`}
+                  style={[styles.lessonRow, i > 0 && styles.rowDivider]}
+                  onPress={onOpenSchedule}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.timeCol}>
+                    <Text style={styles.lessonTime}>{lesson.time || '—'}</Text>
+                    {lesson.num ? <Text style={styles.lessonNum}>Пара {lesson.num}</Text> : null}
+                  </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.lessonName} numberOfLines={1}>{lesson.subject || 'Занятие'}</Text>
+                    <Text style={styles.lessonMeta} numberOfLines={1}>
+                      {[lesson.room ? `каб. ${lesson.room}` : '', lesson.teacher].filter(Boolean).join(' · ') || 'Аудитория не указана'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>На сегодня пар нет</Text>
+            </View>
+          )}
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Быстрые действия</Text>
+          </View>
+
+          <View style={styles.list}>
+            <TouchableOpacity style={styles.actionRow} onPress={onOpenGrades} activeOpacity={0.8}>
+              <View style={styles.rowBody}>
+                <Text style={styles.rowTitle}>Оценки</Text>
+                <Text style={styles.rowMeta}>Предметы и успеваемость</Text>
+              </View>
+              <Chevron direction="right" size={7} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionRow, styles.rowDivider]} onPress={onOpenSchedule} activeOpacity={0.8}>
+              <View style={styles.rowBody}>
+                <Text style={styles.rowTitle}>Расписание</Text>
+                <Text style={styles.rowMeta}>Неделя и пары</Text>
+              </View>
+              <Chevron direction="right" size={7} />
+            </TouchableOpacity>
+          </View>
+
+          {cacheAge != null ? <Text style={styles.updated}>Данные обновлены {formatCache(cacheAge)}</Text> : null}
         </View>
-        {cacheAge != null && <Text style={styles.updated}>Данные обновлены {formatCache(cacheAge)}</Text>}
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' },
-  content: { paddingBottom: 28 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0d1b2a' },
-  loading: { color: '#8a9bb0', marginTop: 12 },
-  header: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  eyebrow: { color: '#4fc3f7', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
-  title: { color: '#e8f4fd', fontSize: 30, fontWeight: '800', marginTop: 2 },
-  group: { color: '#8a9bb0', fontSize: 13, marginTop: 3 },
-  settingsButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#132233', borderWidth: 1, borderColor: '#1e3a4f', alignItems: 'center', justifyContent: 'center' },
-  settingsIcon: { color: '#c8ddf0', fontSize: 21 },
-  hero: { marginHorizontal: 16, padding: 20, borderRadius: 20, backgroundColor: '#1565c0', marginBottom: 12 },
-  heroLabel: { color: '#b9e6ff', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-  heroTitle: { color: '#fff', fontSize: 21, fontWeight: '800', marginTop: 8, lineHeight: 27 },
-  heroRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
-  heroTime: { color: '#e8f4fd', fontSize: 13, fontWeight: '700' },
-  heroRoom: { color: '#b9e6ff', fontSize: 13 },
-  statsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
-  statCard: { flex: 1, backgroundColor: '#132233', borderRadius: 15, borderWidth: 1, borderColor: '#1e3a4f', padding: 14 },
-  statValue: { color: '#4fc3f7', fontSize: 22, fontWeight: '800' },
-  statLabel: { color: '#71859b', fontSize: 9, fontWeight: '700', marginTop: 4 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, marginTop: 24, marginBottom: 10 },
-  sectionTitle: { color: '#e8f4fd', fontSize: 18, fontWeight: '800' },
-  more: { color: '#4fc3f7', fontSize: 13, fontWeight: '700' },
-  lessonRow: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, backgroundColor: '#132233', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#1e3a4f' },
-  timeCol: { width: 68 },
-  lessonTime: { color: '#4fc3f7', fontSize: 14, fontWeight: '800' },
-  lessonNum: { color: '#71859b', fontSize: 10, marginTop: 3 },
-  lessonInfo: { flex: 1 },
-  lessonName: { color: '#e8f4fd', fontSize: 14, fontWeight: '700' },
-  lessonMeta: { color: '#8a9bb0', fontSize: 11, marginTop: 5 },
-  empty: { marginHorizontal: 16, padding: 18, backgroundColor: '#132233', borderRadius: 14, borderWidth: 1, borderColor: '#1e3a4f' },
-  emptyTitle: { color: '#c8ddf0', fontWeight: '700', fontSize: 14 },
-  emptyText: { color: '#71859b', marginTop: 4, fontSize: 12 },
-  quickGrid: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
-  quickCard: { flex: 1, padding: 16, borderRadius: 15, backgroundColor: '#132233', borderWidth: 1, borderColor: '#1e3a4f' },
-  quickIcon: { color: '#4fc3f7', fontSize: 20, fontWeight: '800' },
-  quickTitle: { color: '#e8f4fd', fontSize: 14, fontWeight: '800', marginTop: 9 },
-  quickText: { color: '#71859b', fontSize: 11, marginTop: 3 },
-  bookCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 12, padding: 14, backgroundColor: '#132233', borderRadius: 15, borderWidth: 1, borderColor: '#1e3a4f' },
-  bookMark: { width: 38, height: 38, borderRadius: 10, backgroundColor: '#102a3d', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  bookMarkText: { color: '#4fc3f7', fontSize: 18 },
-  bookInfo: { flex: 1 },
-  bookTitle: { color: '#e8f4fd', fontSize: 14, fontWeight: '800' },
-  bookText: { color: '#71859b', fontSize: 11, marginTop: 3 },
-  bookArrow: { color: '#71859b', fontSize: 24, marginLeft: 8 },
-  updated: { color: '#566b80', fontSize: 10, textAlign: 'center', marginTop: 20 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { paddingBottom: 32 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  loading: { color: colors.muted, fontSize: 13, marginTop: 12 },
+
+  header: { paddingHorizontal: layout.page, paddingTop: layout.top, paddingBottom: 16 },
+  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: '600' },
+  group: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
+
+  page: { paddingHorizontal: layout.page },
+  block: { marginTop: 12 },
+
+  hero: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    overflow: 'hidden',
+  },
+  heroRule: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: colors.accent },
+  heroLabel: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  heroTitle: { color: colors.text, fontSize: 20, lineHeight: 26, fontWeight: '600', marginTop: 6 },
+  heroMeta: {
+    color: colors.text2,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 6,
+    fontVariant: ['tabular-nums'],
+  },
+  heroEmpty: { color: colors.text2, fontSize: 15, lineHeight: 21, marginTop: 6 },
+
+  bookRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  rowBody: { flex: 1 },
+  rowTitle: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  rowMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 2 },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  sectionTitle: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '600' },
+  link: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  linkText: { color: colors.accent, fontSize: 13, lineHeight: 17, fontWeight: '500' },
+
+  list: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    overflow: 'hidden',
+  },
+  rowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  lessonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  timeCol: { width: 72 },
+  lessonTime: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  lessonNum: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 2 },
+  lessonName: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  lessonMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 2 },
+
+  emptyCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  emptyTitle: { color: colors.text2, fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  emptyText: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  updated: { color: colors.muted, fontSize: 11, lineHeight: 15, textAlign: 'center', marginTop: 24 },
 });

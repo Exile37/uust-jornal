@@ -1,9 +1,10 @@
 // =========================
 // OFFLINE BANNER
-// Показывает пометку когда данные из кэша
+// Пометка, когда данные пришли из кэша.
 // =========================
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { colors, layout } from '../theme';
 
 export default function OfflineBanner({ fromCache, cacheAge }) {
   if (!fromCache) return null;
@@ -16,9 +17,9 @@ export default function OfflineBanner({ fromCache, cacheAge }) {
 
   return (
     <View style={styles.banner}>
-      <Text style={styles.icon}>📵</Text>
+      <View style={styles.dot} />
       <Text style={styles.text}>
-        Офлайн — данные из кэша{ageText ? ` · ${ageText}` : ''}
+        Офлайн · данные из кэша{ageText ? ` · ${ageText}` : ''}
       </Text>
     </View>
   );
@@ -28,13 +29,13 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a2a1a',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     gap: 8,
+    paddingHorizontal: layout.page,
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#2a4a2a',
+    borderBottomColor: colors.line,
   },
-  icon: { fontSize: 14 },
-  text: { color: '#66bb6a', fontSize: 12, fontWeight: '600' },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.warn },
+  text: { color: colors.text2, fontSize: 12, lineHeight: 16 },
 });

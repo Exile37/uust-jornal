@@ -11,6 +11,7 @@ import {
   getBiometricCredentials,
   hasBiometricCredentials,
 } from '../services/authService';
+import { colors, radius } from '../theme';
 
 export default function LoginScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -27,7 +28,6 @@ export default function LoginScreen({ onLoginSuccess }) {
     try {
       const available = await isBiometricAvailable();
       const hasCredentials = await hasBiometricCredentials();
-      console.log('bioAvailable:', available, '| hasCredentials:', hasCredentials);
       setBioAvailable(available);
       setBioEnabled(hasCredentials);
 
@@ -36,24 +36,20 @@ export default function LoginScreen({ onLoginSuccess }) {
         setTimeout(() => handleBiometricLogin(), 500);
       }
     } catch (e) {
-      console.log('checkBiometrics error:', e);
+      // Биометрия не критична для входа: форма работает и без неё.
     }
   }
 
   async function handleBiometricLogin() {
-    console.log('handleBiometricLogin called');
     try {
       const success = await authenticateWithBiometrics();
-      console.log('bio success:', success);
       if (!success) return;
 
       const creds = await getBiometricCredentials();
-      console.log('creds:', creds ? 'found' : 'null');
       if (!creds) return;
 
       setLoading(true);
       const result = await login(creds.username, creds.password);
-      console.log('login result:', result);
       if (result.success) {
         onLoginSuccess();
       } else {
@@ -61,7 +57,6 @@ export default function LoginScreen({ onLoginSuccess }) {
         setBioEnabled(false);
       }
     } catch (e) {
-      console.log('handleBiometricLogin error:', e);
       Alert.alert('Ошибка', e.message || 'Нет соединения с сервером');
     } finally {
       setLoading(false);
@@ -79,8 +74,8 @@ export default function LoginScreen({ onLoginSuccess }) {
       if (result.success) {
         if (bioAvailable && !bioEnabled) {
           Alert.alert(
-            'Вход по Face ID',
-            'Хотите входить в приложение по Face ID / Touch ID?',
+            'Вход по биометрии',
+            'Включить вход по Face ID или отпечатку?',
             [
               { text: 'Не сейчас', style: 'cancel', onPress: () => onLoginSuccess() },
               {
@@ -111,56 +106,60 @@ export default function LoginScreen({ onLoginSuccess }) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.card}>
-        <Text style={styles.title}>УУСТР</Text>
+      <View style={styles.sheet}>
+        <View style={styles.brandRow}>
+          <View style={styles.brandRule} />
+          <Text style={styles.brand}>УУСТР</Text>
+        </View>
         <Text style={styles.subtitle}>Электронный журнал</Text>
 
+        <Text style={styles.label}>Логин</Text>
         <TextInput
           style={styles.input}
-          placeholder="Логин"
-          placeholderTextColor="#8a9bb0"
           value={username}
           onChangeText={setUsername}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
           editable={!loading}
+          textContentType="username"
         />
 
+        <Text style={styles.label}>Пароль</Text>
         <TextInput
           style={styles.input}
-          placeholder="Пароль"
-          placeholderTextColor="#8a9bb0"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
           editable={!loading}
           onSubmitEditing={handleLogin}
+          textContentType="password"
         />
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleLogin}
           disabled={loading}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={colors.onAccent} />
           ) : (
             <Text style={styles.buttonText}>Войти</Text>
           )}
         </TouchableOpacity>
 
-        {bioAvailable && bioEnabled && !loading && (
+        {bioAvailable && bioEnabled && !loading ? (
           <TouchableOpacity
             style={styles.bioButton}
             onPress={handleBiometricLogin}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
           >
-            <Text style={styles.bioIcon}>🔒</Text>
-            <Text style={styles.bioText}>Войти по Face ID</Text>
+            <Text style={styles.bioText}>Войти по биометрии</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
+
+        <Text style={styles.footer}>account.str.uust.ru</Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -168,40 +167,47 @@ export default function LoginScreen({ onLoginSuccess }) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: '#0d1b2a',
-    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24,
+    flex: 1,
+    backgroundColor: colors.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  card: {
-    width: '100%', maxWidth: 380,
-    backgroundColor: '#132233', borderRadius: 16, padding: 32,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4, shadowRadius: 16, elevation: 10,
+  sheet: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 24,
   },
-  title: {
-    fontSize: 32, fontWeight: '800', color: '#4fc3f7',
-    textAlign: 'center', letterSpacing: 4, marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14, color: '#8a9bb0', textAlign: 'center',
-    marginBottom: 32, letterSpacing: 1,
-  },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandRule: { width: 20, height: 2, borderRadius: 1, backgroundColor: colors.accent },
+  brand: { color: colors.text, fontSize: 22, lineHeight: 26, fontWeight: '600' },
+  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 6 },
+  label: { color: colors.text2, fontSize: 12, lineHeight: 16, fontWeight: '500', marginTop: 20, marginBottom: 6 },
   input: {
-    backgroundColor: '#0d1b2a', borderWidth: 1, borderColor: '#1e3a4f',
-    borderRadius: 10, paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 15, color: '#e8f4fd', marginBottom: 14,
+    height: 52,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: colors.text,
   },
   button: {
-    backgroundColor: '#1565c0', borderRadius: 10,
-    paddingVertical: 16, alignItems: 'center', marginTop: 8,
+    height: 52,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
   },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
-  bioButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    marginTop: 16, paddingVertical: 14, borderRadius: 10,
-    backgroundColor: '#0d1b2a', borderWidth: 1, borderColor: '#1e3a4f',
-    gap: 8,
-  },
-  bioIcon: { fontSize: 22 },
-  bioText: { color: '#4fc3f7', fontSize: 15, fontWeight: '600' },
+  buttonDisabled: { opacity: 0.55 },
+  buttonText: { color: colors.onAccent, fontSize: 15, fontWeight: '600' },
+  bioButton: { alignItems: 'center', paddingVertical: 16, marginTop: 4 },
+  bioText: { color: colors.text2, fontSize: 14, fontWeight: '500' },
+  footer: { color: colors.muted, fontSize: 10, lineHeight: 14, textAlign: 'center', marginTop: 16 },
 });

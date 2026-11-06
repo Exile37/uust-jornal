@@ -3,20 +3,35 @@ import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } fr
 import { FlashList } from '@shopify/flash-list';
 import { fetchGrades } from '../services/subjectsService';
 import OfflineBanner from '../components/OfflineBanner';
+import StatStrip from '../components/StatStrip';
+import Chevron from '../components/Chevron';
+import { colors, layout, radius } from '../theme';
 
-const GradeItem = React.memo(({ item }) => {
-  const grade = String(item.grade ?? '').trim();
+function markColors(grade) {
   const numeric = parseInt(grade, 10);
-  const isBad = grade === '2' || grade === 'н/я' || grade === 'н';
-  const isGood = numeric >= 4;
+  if (grade === '2' || grade === 'н/я' || grade === 'н') {
+    return { bg: colors.badSoft, border: 'rgba(207, 127, 114, 0.35)', fg: colors.bad };
+  }
+  if (numeric >= 4) {
+    return { bg: colors.goodSoft, border: 'rgba(143, 174, 120, 0.35)', fg: colors.good };
+  }
+  if (numeric === 3) {
+    return { bg: colors.warnSoft, border: 'rgba(201, 162, 94, 0.35)', fg: colors.warn };
+  }
+  return { bg: colors.raised, border: colors.line, fg: colors.text2 };
+}
+
+const GradeItem = React.memo(({ item, first, last }) => {
+  const grade = String(item.grade ?? '').trim();
+  const mark = markColors(grade);
   return (
-    <View style={styles.card}>
+    <View style={[styles.row, first && styles.rowFirst, last && styles.rowLast, !first && styles.rowDivider]}>
       <View style={styles.info}>
-        <Text style={styles.theme}>{item.theme || 'Занятие'}</Text>
-        <Text style={styles.date}>{item.date || 'Дата не указана'}</Text>
+        <Text style={styles.theme} numberOfLines={2}>{item.theme || 'Занятие'}</Text>
+        <Text style={styles.date} numberOfLines={1}>{item.date || 'Дата не указана'}</Text>
       </View>
-      <View style={[styles.badge, { backgroundColor: isBad ? '#ef5350' : isGood ? '#4CAF50' : '#FF9800' }]}>
-        <Text style={styles.gradeText}>{grade || '—'}</Text>
+      <View style={[styles.mark, { backgroundColor: mark.bg, borderColor: mark.border }]}>
+        <Text style={[styles.gradeText, { color: mark.fg }]}>{grade || '—'}</Text>
       </View>
     </View>
   );
@@ -52,7 +67,7 @@ export default function GradesScreen({ subject, onBack }) {
       .map((l) => parseInt(String(l.grade).trim(), 10))
       .filter((n) => n >= 2 && n <= 5);
     if (!nums.length) return '—';
-    return (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2);
+    return (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2).replace('.', ',');
   }, [lessons]);
 
   const graded = lessons.filter((l) => {
@@ -60,32 +75,53 @@ export default function GradesScreen({ subject, onBack }) {
     return n >= 2 && n <= 5;
   }).length;
 
+  const stats = [
+    { label: 'Средний балл', value: average, accent: true },
+    { label: 'Оценок', value: graded },
+    { label: 'Занятий', value: lessons.length },
+  ];
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}><Text style={styles.backText}>‹ Назад</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onBack} style={styles.back} activeOpacity={0.7}>
+          <Chevron direction="left" size={7} color={colors.text2} />
+          <Text style={styles.backText}>Назад</Text>
+        </TouchableOpacity>
         <Text style={styles.title} numberOfLines={2}>{subject?.name || 'Оценки'}</Text>
         {subject?.teacher ? <Text style={styles.subtitle}>{subject.teacher}</Text> : null}
       </View>
 
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}><Text style={styles.statValue}>{average}</Text><Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text></View>
-        <View style={styles.statCard}><Text style={styles.statValue}>{graded}</Text><Text style={styles.statLabel}>ОЦЕНОК</Text></View>
-        <View style={styles.statCard}><Text style={styles.statValue}>{lessons.length}</Text><Text style={styles.statLabel}>ЗАНЯТИЙ</Text></View>
+      <View style={styles.block}>
+        <StatStrip items={stats} />
       </View>
 
       <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
       {loading ? (
-        <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loadingText}>Загружаем оценки...</Text></View>
+        <View style={styles.center}>
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={styles.loadingText}>Загрузка</Text>
+        </View>
       ) : (
         <FlashList
           data={lessons}
-          renderItem={({ item }) => <GradeItem item={item} />}
-          estimatedItemSize={76}
+          renderItem={({ item, index }) => (
+            <GradeItem
+              item={item}
+              first={index === 0}
+              last={index === lessons.length - 1}
+            />
+          )}
+          estimatedItemSize={68}
           keyExtractor={(item, i) => `${item.date || ''}-${i}`}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTitle}>Оценок пока нет</Text><Text style={styles.emptyText}>По этому предмету ещё не выставляли оценки.</Text></View>}
+          ListEmptyComponent={(
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>Оценок пока нет</Text>
+              <Text style={styles.emptyText}>По этому предмету ещё не выставляли оценки</Text>
+            </View>
+          )}
         />
       )}
     </View>
@@ -93,25 +129,51 @@ export default function GradesScreen({ subject, onBack }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' },
-  header: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14 },
-  backBtn: { alignSelf: 'flex-start', paddingVertical: 6, paddingRight: 10, marginBottom: 6 },
-  backText: { color: '#4fc3f7', fontSize: 15, fontWeight: '700' },
-  title: { color: '#e8f4fd', fontSize: 22, fontWeight: '800', lineHeight: 28 },
-  subtitle: { color: '#8a9bb0', fontSize: 12, marginTop: 4 },
-  statsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12 },
-  statCard: { flex: 1, backgroundColor: '#132233', borderRadius: 14, borderWidth: 1, borderColor: '#1e3a4f', padding: 13 },
-  statValue: { color: '#4fc3f7', fontSize: 20, fontWeight: '800' },
-  statLabel: { color: '#71859b', fontSize: 9, fontWeight: '700', marginTop: 4 },
-  listContent: { padding: 16, paddingTop: 8, paddingBottom: 32 },
-  card: { backgroundColor: '#132233', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderRadius: 13, marginBottom: 8, borderWidth: 1, borderColor: '#1e3a4f' },
-  info: { flex: 1, marginRight: 10 },
-  theme: { fontSize: 14, fontWeight: '700', color: '#e8f4fd', lineHeight: 19 },
-  date: { fontSize: 11, color: '#8a9bb0', marginTop: 5 },
-  badge: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  gradeText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
-  loadingText: { color: '#8a9bb0', marginTop: 12, fontSize: 14 },
-  emptyTitle: { color: '#c8ddf0', fontSize: 15, fontWeight: '700' },
-  emptyText: { color: '#71859b', fontSize: 12, marginTop: 5, textAlign: 'center' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingHorizontal: layout.page, paddingTop: layout.top, paddingBottom: 16 },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6, paddingRight: 10, marginBottom: 8 },
+  backText: { color: colors.text2, fontSize: 13, lineHeight: 17, fontWeight: '500' },
+  title: { color: colors.text, fontSize: 22, lineHeight: 27, fontWeight: '600' },
+  subtitle: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  block: { paddingHorizontal: layout.page, marginBottom: 12 },
+
+  listContent: { paddingHorizontal: layout.page, paddingTop: 12, paddingBottom: 32 },
+  row: {
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.line,
+  },
+  rowFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  rowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  info: { flex: 1 },
+  theme: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  date: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 3 },
+  mark: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gradeText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  loadingText: { color: colors.muted, fontSize: 13, marginTop: 12 },
+  empty: { alignItems: 'center', paddingVertical: 48 },
+  emptyTitle: { color: colors.text2, fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  emptyText: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4, textAlign: 'center' },
 });

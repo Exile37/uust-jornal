@@ -7,13 +7,14 @@ import ScheduleScreen from './src/screens/ScheduleScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import RecordBookScreen from './src/screens/RecordBookScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import { colors } from './src/theme';
 
 const TABS = [
-  { id: 'home', icon: '⌂', label: 'Главная' },
-  { id: 'grades', icon: '★', label: 'Оценки' },
-  { id: 'record', icon: '▤', label: 'Зачётка' },
-  { id: 'schedule', icon: '▦', label: 'Расписание' },
-  { id: 'settings', icon: '⚙', label: 'Настройки' },
+  { id: 'home', label: 'Главная' },
+  { id: 'grades', label: 'Оценки' },
+  { id: 'record', label: 'Зачётка' },
+  { id: 'schedule', label: 'Расписание' },
+  { id: 'settings', label: 'Настройки' },
 ];
 
 export default function App() {
@@ -27,11 +28,11 @@ export default function App() {
   function handleBack() { setScreen('main'); setSelectedSubject(null); }
   function openTab(tab) { setSelectedSubject(null); setScreen('main'); setActiveTab(tab); }
 
-  if (screen === 'login') return <><StatusBar barStyle="light-content" backgroundColor="#0d1b2a" /><LoginScreen onLoginSuccess={handleLoginSuccess} /></>;
-  if (screen === 'gradesDetail' && selectedSubject) return <><StatusBar barStyle="light-content" backgroundColor="#0d1b2a" /><GradesScreen subject={selectedSubject} onBack={handleBack} /></>;
+  if (screen === 'login') return <><StatusBar barStyle="light-content" backgroundColor={colors.bg} /><LoginScreen onLoginSuccess={handleLoginSuccess} /></>;
+  if (screen === 'gradesDetail' && selectedSubject) return <><StatusBar barStyle="light-content" backgroundColor={colors.bg} /><GradesScreen subject={selectedSubject} onBack={handleBack} /></>;
 
   return (
-    <><StatusBar barStyle="light-content" backgroundColor="#0d1b2a" />
+    <><StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <View style={styles.container}>
         <View style={styles.content}>
           {activeTab === 'home' && <DashboardScreen onOpenGrades={() => openTab('grades')} onOpenRecordBook={() => openTab('record')} onOpenSchedule={() => openTab('schedule')} onOpenSettings={() => openTab('settings')} />}
@@ -43,11 +44,12 @@ export default function App() {
         <View style={styles.tabBar}>
           {TABS.map(tab => {
             const active = activeTab === tab.id;
-            return <TouchableOpacity key={tab.id} style={styles.tabItem} onPress={() => openTab(tab.id)} activeOpacity={0.75}>
-              <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{tab.icon}</Text>
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
-              {active && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>;
+            return (
+              <TouchableOpacity key={tab.id} style={styles.tabItem} onPress={() => openTab(tab.id)} activeOpacity={0.7}>
+                <View style={[styles.tabRule, active && styles.tabRuleActive]} />
+                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            );
           })}
         </View>
       </View>
@@ -56,10 +58,32 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' }, content: { flex: 1 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#132233', borderTopWidth: 1, borderTopColor: '#1e3a4f', paddingBottom: 18, paddingTop: 7 },
-  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 4, position: 'relative' },
-  tabIcon: { color: '#71859b', fontSize: 21, lineHeight: 24 }, tabIconActive: { color: '#4fc3f7' },
-  tabLabel: { color: '#71859b', fontSize: 10, fontWeight: '700', marginTop: 2 }, tabLabelActive: { color: '#4fc3f7' },
-  tabIndicator: { position: 'absolute', top: -7, width: 28, height: 3, backgroundColor: '#4fc3f7', borderRadius: 2 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { flex: 1 },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingBottom: 16,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    minHeight: 48,
+    paddingTop: 12,
+    paddingBottom: 2,
+  },
+  tabRule: {
+    position: 'absolute',
+    top: 0,
+    width: 20,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'transparent',
+  },
+  tabRuleActive: { backgroundColor: colors.accent },
+  tabLabel: { color: colors.muted, fontSize: 11, lineHeight: 14, fontWeight: '500' },
+  tabLabelActive: { color: colors.accent },
 });

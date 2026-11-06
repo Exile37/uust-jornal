@@ -5,6 +5,8 @@ import {
 } from 'react-native';
 import { fetchRecordBook } from '../services/recordBookService';
 import OfflineBanner from '../components/OfflineBanner';
+import StatStrip from '../components/StatStrip';
+import { colors, layout, radius } from '../theme';
 
 function plural(count, one, few, many) {
   const tail = Math.abs(count) % 100;
@@ -27,15 +29,21 @@ function shortGrade(value) {
 
 function markColors(value, isAverage) {
   const grade = String(value || '').trim().toLowerCase().replace('ё', 'е');
-  if (isAverage) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
-  if (!grade) return { bg: '#0f1f2e', fg: '#5c7186', border: '#1e3a4f' };
+  if (isAverage) return { bg: colors.accentSoft, fg: colors.accent, border: 'rgba(217, 164, 91, 0.35)' };
+  if (!grade) return { bg: colors.raised, fg: colors.muted, border: colors.line };
   if (grade === '2' || grade === 'неудовлетворительно' || grade === 'неуд.' || grade.includes('не зач') || grade === 'н/я' || grade === 'неявка') {
-    return { bg: '#3a1a1d', fg: '#ef5350', border: '#54252b' };
+    return { bg: colors.badSoft, fg: colors.bad, border: 'rgba(207, 127, 114, 0.35)' };
   }
-  if (grade === '5' || grade === '4' || grade === 'отлично' || grade === 'хорошо') return { bg: '#1b3324', fg: '#66bb6a', border: '#285034' };
-  if (grade === '3' || grade === 'удовлетворительно') return { bg: '#3a2a12', fg: '#ffb74d', border: '#5a411c' };
-  if (grade.includes('зач')) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
-  return { bg: '#132233', fg: '#c8ddf0', border: '#1e3a4f' };
+  if (grade === '5' || grade === '4' || grade === 'отлично' || grade === 'хорошо') {
+    return { bg: colors.goodSoft, fg: colors.good, border: 'rgba(143, 174, 120, 0.35)' };
+  }
+  if (grade === '3' || grade === 'удовлетворительно') {
+    return { bg: colors.warnSoft, fg: colors.warn, border: 'rgba(201, 162, 94, 0.35)' };
+  }
+  if (grade.includes('зач')) {
+    return { bg: colors.accentSoft, fg: colors.accent, border: 'rgba(217, 164, 91, 0.35)' };
+  }
+  return { bg: colors.raised, fg: colors.text2, border: colors.line };
 }
 
 function semesterStats(disciplines) {
@@ -51,7 +59,7 @@ function semesterStats(disciplines) {
 function DisciplineRow({ item, last }) {
   const display = shortGrade(item.grade);
   const isAverage = !display && Boolean(item.average);
-  const colors = markColors(display || item.average, isAverage);
+  const mark = markColors(display || item.average, isAverage);
   const meta = [item.control, item.teacher].filter(Boolean).join(' · ');
   const details = [
     item.credits ? `${item.credits} з.е.` : '',
@@ -64,10 +72,10 @@ function DisciplineRow({ item, last }) {
       <View style={styles.rowInfo}>
         <Text style={styles.rowName}>{item.name}</Text>
         {meta ? <Text style={styles.rowMeta} numberOfLines={2}>{meta}</Text> : null}
-        {details ? <Text style={styles.rowDetails}>{details}</Text> : null}
+        {details ? <Text style={styles.rowDetails} numberOfLines={1}>{details}</Text> : null}
       </View>
-      <View style={[styles.mark, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-        <Text style={[styles.markText, { color: colors.fg }]} numberOfLines={1}>{display || item.average || '—'}</Text>
+      <View style={[styles.mark, { backgroundColor: mark.bg, borderColor: mark.border }]}>
+        <Text style={[styles.markText, { color: mark.fg }]} numberOfLines={1}>{display || item.average || '—'}</Text>
         {isAverage ? <Text style={styles.markNote}>ср.</Text> : null}
       </View>
     </View>
@@ -116,8 +124,8 @@ export default function RecordBookScreen({ onLogout }) {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4fc3f7" />
-        <Text style={styles.loadingText}>Открываем зачётную книжку...</Text>
+        <ActivityIndicator size="small" color={colors.accent} />
+        <Text style={styles.loadingText}>Загрузка</Text>
       </View>
     );
   }
@@ -127,129 +135,194 @@ export default function RecordBookScreen({ onLogout }) {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Зачётка не открылась</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={() => { setLoading(true); load(); }}>
+        <TouchableOpacity style={styles.retry} onPress={() => { setLoading(true); load(); }} activeOpacity={0.85}>
           <Text style={styles.retryText}>Попробовать снова</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  const average = summary.average != null
+    ? Number(summary.average).toFixed(2).replace('.', ',')
+    : '—';
+  const total = summary.total ?? semesters.reduce((sum, item) => sum + item.disciplines.length, 0);
+  const rating = summary.rating != null ? Number(summary.rating).toLocaleString('ru-RU') : '—';
+  const stats = [
+    { label: 'Средний балл', value: average, accent: true },
+    { label: 'Дисциплин', value: total },
+    { label: 'Рейтинг', value: rating },
+  ];
+
   return (
     <View style={styles.container}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor="#4fc3f7" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.accent} />}
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>ЛИЧНЫЙ КАБИНЕТ</Text>
           <Text style={styles.headerTitle}>Зачётная книжка</Text>
           <Text style={styles.headerSub}>{subtitle || 'УУСТР'}</Text>
         </View>
 
         <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
-        {(student.name || student.faculty) ? (
-          <View style={styles.studentCard}>
-            {student.name ? <Text style={styles.studentName}>{student.name}</Text> : null}
-            {student.faculty ? <Text style={styles.studentFaculty}>{student.faculty}</Text> : null}
-          </View>
-        ) : null}
-
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{summary.average != null ? Number(summary.average).toFixed(2).replace('.', ',') : '—'}</Text>
-            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ{summary.averageSource === 'calculated' ? ' · РАСЧЁТ' : ''}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{summary.total ?? semesters.reduce((sum, item) => sum + item.disciplines.length, 0)}</Text>
-            <Text style={styles.statLabel}>ДИСЦИПЛИН</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{summary.rating != null ? Number(summary.rating).toLocaleString('ru-RU') : '—'}</Text>
-            <Text style={styles.statLabel}>РЕЙТИНГ</Text>
-          </View>
-        </View>
-
-        {source === 'journal' ? (
-          <View style={styles.note}>
-            <Text style={styles.noteText}>Собрано из журнала. Итоговые оценки могут отличаться от личного кабинета.</Text>
-          </View>
-        ) : null}
-
-        {semesters.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Пока пусто</Text>
-            <Text style={styles.emptyText}>Оценки появятся здесь, когда их выставят в личном кабинете.</Text>
-          </View>
-        ) : semesters.map((semester) => {
-          const stats = semesterStats(semester.disciplines);
-          return (
-            <View key={semester.title} style={styles.semester}>
-              <View style={styles.semHeader}>
-                <Text style={styles.semTitle}>{semester.title}</Text>
-                <Text style={styles.semMeta}>
-                  {stats.count} {plural(stats.count, 'дисциплина', 'дисциплины', 'дисциплин')}
-                  {stats.average != null ? ` · ср. по оценкам ${stats.average.toFixed(2)}` : ''}
-                </Text>
-              </View>
-              <View style={styles.semBody}>
-                {semester.disciplines.map((item, index) => (
-                  <DisciplineRow
-                    key={`${item.name}-${index}`}
-                    item={item}
-                    last={index === semester.disciplines.length - 1}
-                  />
-                ))}
-              </View>
+        <View style={styles.page}>
+          {(student.name || student.faculty) ? (
+            <View style={styles.studentCard}>
+              {student.name ? <Text style={styles.studentName}>{student.name}</Text> : null}
+              {student.faculty ? <Text style={styles.studentFaculty}>{student.faculty}</Text> : null}
             </View>
-          );
-        })}
+          ) : null}
 
-        <Text style={styles.footer}>Официальная выписка · account.str.uust.ru</Text>
+          <StatStrip items={stats} />
+
+          {summary.averageSource === 'calculated' && summary.average != null ? (
+            <Text style={styles.noteSmall}>Средний балл рассчитан по числовым оценкам</Text>
+          ) : null}
+
+          {source === 'journal' ? (
+            <View style={styles.note}>
+              <Text style={styles.noteText}>Собрано из журнала. Итоговые оценки могут отличаться от личного кабинета.</Text>
+            </View>
+          ) : null}
+
+          {semesters.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>Пока пусто</Text>
+              <Text style={styles.emptyText}>Оценки появятся здесь, когда их выставят в личном кабинете</Text>
+            </View>
+          ) : semesters.map((semester) => {
+            const statsForSemester = semesterStats(semester.disciplines);
+            return (
+              <View key={semester.title} style={styles.semester}>
+                <View style={styles.semHeader}>
+                  <Text style={styles.semTitle}>{semester.title}</Text>
+                  <Text style={styles.semMeta} numberOfLines={1}>
+                    {statsForSemester.count} {plural(statsForSemester.count, 'дисциплина', 'дисциплины', 'дисциплин')}
+                    {statsForSemester.average != null ? ` · ср. ${statsForSemester.average.toFixed(2).replace('.', ',')}` : ''}
+                  </Text>
+                </View>
+                <View style={styles.semBody}>
+                  {semester.disciplines.map((item, index) => (
+                    <DisciplineRow
+                      key={`${item.name}-${index}`}
+                      item={item}
+                      last={index === semester.disciplines.length - 1}
+                    />
+                  ))}
+                </View>
+              </View>
+            );
+          })}
+
+          <Text style={styles.footer}>Официальная выписка · account.str.uust.ru</Text>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1b2a' },
+  container: { flex: 1, backgroundColor: colors.bg },
   content: { paddingBottom: 32 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: '#0d1b2a' },
-  loadingText: { color: '#8a9bb0', marginTop: 12, fontSize: 14 },
-  errorTitle: { color: '#e8f4fd', fontSize: 18, fontWeight: '800' },
-  errorText: { color: '#8a9bb0', fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 19 },
-  retry: { marginTop: 18, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 12, backgroundColor: '#1565c0' },
-  retryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  header: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16 },
-  eyebrow: { color: '#4fc3f7', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  headerTitle: { color: '#e8f4fd', fontSize: 26, fontWeight: '800', marginTop: 3 },
-  headerSub: { color: '#8a9bb0', fontSize: 12, marginTop: 4 },
-  studentCard: { marginHorizontal: 16, marginBottom: 10, padding: 15, borderRadius: 15, backgroundColor: '#132233', borderWidth: 1, borderColor: '#1e3a4f' },
-  studentName: { color: '#e8f4fd', fontSize: 15, fontWeight: '700' },
-  studentFaculty: { color: '#8a9bb0', fontSize: 11, marginTop: 5 },
-  statsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12 },
-  statCard: { flex: 1, backgroundColor: '#132233', borderRadius: 14, borderWidth: 1, borderColor: '#1e3a4f', padding: 13 },
-  statValue: { color: '#4fc3f7', fontSize: 20, fontWeight: '800' },
-  statValueDanger: { color: '#ef5350' },
-  statLabel: { color: '#71859b', fontSize: 9, fontWeight: '700', marginTop: 4 },
-  note: { marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: '#172a1c', borderWidth: 1, borderColor: '#27452e' },
-  noteText: { color: '#8fbf95', fontSize: 11, lineHeight: 16 },
-  empty: { marginHorizontal: 16, marginTop: 8, padding: 22, borderRadius: 15, backgroundColor: '#132233', borderWidth: 1, borderColor: '#1e3a4f' },
-  emptyTitle: { color: '#c8ddf0', fontSize: 15, fontWeight: '700' },
-  emptyText: { color: '#71859b', fontSize: 12, marginTop: 5, lineHeight: 18 },
-  semester: { marginTop: 8, marginHorizontal: 16 },
-  semHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 8 },
-  semTitle: { color: '#e8f4fd', fontSize: 16, fontWeight: '800' },
-  semMeta: { color: '#71859b', fontSize: 10, fontWeight: '600' },
-  semBody: { backgroundColor: '#132233', borderRadius: 15, borderWidth: 1, borderColor: '#1e3a4f', overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: '#1a2f42' },
-  rowInfo: { flex: 1, marginRight: 12 },
-  rowName: { color: '#e8f4fd', fontSize: 14, fontWeight: '700', lineHeight: 19 },
-  rowMeta: { color: '#8a9bb0', fontSize: 11, marginTop: 4, lineHeight: 15 },
-  rowDetails: { color: '#5f7488', fontSize: 10, marginTop: 3 },
-  mark: { minWidth: 50, height: 40, paddingHorizontal: 6, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  markText: { fontSize: 13, fontWeight: '800' },
-  markNote: { color: '#5f7488', fontSize: 8, fontWeight: '700', marginTop: 1 },
-  footer: { color: '#4f6376', fontSize: 10, textAlign: 'center', marginTop: 22 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: colors.bg },
+  loadingText: { color: colors.muted, fontSize: 13, marginTop: 12 },
+  errorTitle: { color: colors.text, fontSize: 18, lineHeight: 24, fontWeight: '600' },
+  errorText: { color: colors.muted, fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
+  retry: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+  },
+  retryText: { color: colors.onAccent, fontSize: 14, fontWeight: '600' },
+
+  header: { paddingHorizontal: layout.page, paddingTop: layout.top, paddingBottom: 16 },
+  headerTitle: { color: colors.text, fontSize: 26, lineHeight: 32, fontWeight: '600' },
+  headerSub: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  page: { paddingHorizontal: layout.page, paddingTop: 16 },
+  studentCard: {
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  studentName: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  studentFaculty: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 4 },
+
+  noteSmall: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 8 },
+  note: {
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.warnSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 162, 94, 0.3)',
+  },
+  noteText: { color: colors.warn, fontSize: 11, lineHeight: 16 },
+
+  empty: {
+    marginTop: 12,
+    padding: 20,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  emptyTitle: { color: colors.text2, fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  emptyText: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 4 },
+
+  semester: { marginTop: 24 },
+  semHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  semTitle: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '600' },
+  semMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, flexShrink: 1, textAlign: 'right' },
+  semBody: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  rowDivider: { borderBottomWidth: 1, borderBottomColor: colors.line },
+  rowInfo: { flex: 1 },
+  rowName: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  rowMeta: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 3 },
+  rowDetails: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 2 },
+
+  mark: {
+    minWidth: 52,
+    height: 44,
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  markNote: { color: colors.muted, fontSize: 9, lineHeight: 11, marginTop: 1 },
+
+  footer: { color: colors.muted, fontSize: 10, lineHeight: 14, textAlign: 'center', marginTop: 24 },
 });
