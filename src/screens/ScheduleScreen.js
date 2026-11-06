@@ -8,6 +8,7 @@ import { fetchGroups, fetchSchedule, fetchWeekHeader } from '../services/schedul
 import OfflineBanner from '../components/OfflineBanner';
 
 const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
 function typeColor(type) {
   if (!type) return null;
@@ -19,12 +20,12 @@ function typeColor(type) {
   return { bg: '#1e3a4f', text: '#90caf9', label: type };
 }
 
-function LessonCard({ lesson }) {
+function LessonCard({ lesson, isToday }) {
   const tc = lesson.type ? typeColor(lesson.type) : null;
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const match = String(lesson.time || '').match(/(\d{1,2})\D+(\d{2})/);
   const lessonMinutes = match ? Number(match[1]) * 60 + Number(match[2]) : -1;
-  const isCurrent = lessonMinutes >= 0 && Math.abs(lessonMinutes - currentMinutes) <= 50;
+  const isCurrent = isToday && lessonMinutes >= 0 && Math.abs(lessonMinutes - currentMinutes) <= 50;
   
   return (
     <View style={[styles.lessonCard, isCurrent && styles.lessonCardCurrent]}>
@@ -61,7 +62,6 @@ export default function ScheduleScreen() {
   const [schedule, setSchedule] = useState(null);
   const [weekHeader, setWeekHeader] = useState('');
   const [week, setWeek] = useState(0);
-  const [selectedDay, setSelectedDay] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [fromCache, setFromCache] = useState(false);
@@ -70,8 +70,6 @@ export default function ScheduleScreen() {
 
   useEffect(() => {
     loadGroups();
-    const d = new Date().getDay();
-    setSelectedDay(d === 0 ? 0 : Math.min(d - 1, 5));
     // The saved group ID is enough to request the timetable; don't make the
     // student wait for the (separate) group directory first.
     Promise.all([
@@ -142,7 +140,21 @@ export default function ScheduleScreen() {
     loadSchedule(selectedGroup.id, week + delta);
   }
 
-  const currentDay = schedule?.[selectedDay];
+  const days = schedule || [];
+  const todayIndex = (() => {
+    const day = new Date().getDay();
+    return day === 0 ? -1 : day - 1;
+  })();
+  const hasAnyLesson = days.some(day => (day?.lessons || []).length > 0);
+
+  function pluralLessons(count) {
+    const tail = count % 100;
+    const last = count % 10;
+    if (tail > 10 && tail < 20) return 'пар';
+    if (last > 1 && last < 5) return 'пары';
+    if (last === 1) return 'пара';
+    return 'пар';
+  }
 
   return (
     <View style={styles.container}>
@@ -225,45 +237,44 @@ export default function ScheduleScreen() {
           {/* Офлайн баннер */}
           <OfflineBanner fromCache={fromCache} cacheAge={cacheAge} />
 
-          {/* Дни недели */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysRow}>
-            {DAYS_SHORT.map((day, i) => {
-              const hasLessons = schedule[i]?.lessons?.length > 0;
+          {/* Лента: все дни недели подряд */}
+          <ScrollView contentContainerStyle={styles.feed}>
+            {!hasAnyLesson ? (
+              <View style={styles.emptyWeek}>
+                <Text style={styles.emptyText}>На эту неделю занятий нет</Text>
+                <Text style={styles.emptySubText}>Проверьте другую неделю или группу</Text>
+              </View>
+            ) : days.map((day, index) => {
+              const lessons = day?.lessons || [];
+              const isToday = week === 0 && index === todayIndex;
               return (
-                <TouchableOpacity
-                  key={i}
-                  style={[styles.dayTab, selectedDay === i && styles.dayTabActive]}
-                  onPress={() => setSelectedDay(i)}
-                >
-                  <Text style={[styles.dayTabText, selectedDay === i && styles.dayTabTextActive]}>
-                    {day}
-                  </Text>
-                  {hasLessons && (
-                    <View style={[styles.dot, selectedDay === i && styles.dotActive]} />
+                <View key={`${day?.name || index}-${index}`} style={styles.daySection}>
+                  <View style={styles.dayHeader}>
+                    <View style={styles.dayHeaderLeft}>
+                      <Text style={[styles.dayName, isToday && styles.dayNameToday]}>
+                        {day?.name || DAYS_FULL[index] || DAYS_SHORT[index] || `День ${index + 1}`}
+                      </Text>
+                      {isToday ? (
+                        <View style={styles.todayBadge}>
+                          <Text style={styles.todayBadgeText}>СЕГОДНЯ</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.dayMeta}>
+                      {day?.header || (lessons.length ? `${lessons.length} ${pluralLessons(lessons.length)}` : '')}
+                    </Text>
+                  </View>
+
+                  {lessons.length ? lessons.map((lesson, i) => (
+                    <LessonCard key={`${lesson.time}-${i}`} lesson={lesson} isToday={isToday} />
+                  )) : (
+                    <View style={styles.dayEmpty}>
+                      <Text style={styles.dayEmptyText}>Занятий нет</Text>
+                    </View>
                   )}
-                </TouchableOpacity>
+                </View>
               );
             })}
-          </ScrollView>
-
-          {/* Дата выбранного дня */}
-          {currentDay?.header ? (
-            <Text style={styles.dayDate}>{currentDay.header}</Text>
-          ) : null}
-
-          {/* Занятия */}
-          <ScrollView contentContainerStyle={styles.lessonsList}>
-            {currentDay?.lessons?.length > 0 ? (
-              currentDay.lessons.map((lesson, i) => (
-                <LessonCard key={i} lesson={lesson} />
-              ))
-            ) : (
-              <View style={styles.emptyDay}>
-                <Text style={styles.emptyEmoji}>🎉</Text>
-                <Text style={styles.emptyText}>Занятий нет</Text>
-                <Text style={styles.emptySubText}>Свободный день!</Text>
-              </View>
-            )}
           </ScrollView>
         </View>
       ) : !selectedGroup ? (
@@ -323,24 +334,23 @@ const styles = StyleSheet.create({
   weekBtn: { paddingHorizontal: 10, paddingVertical: 6 },
   weekBtnText: { color: '#4fc3f7', fontSize: 13, fontWeight: '600' },
   weekTitle: { color: '#8a9bb0', fontSize: 12, flex: 1, textAlign: 'center' },
-  daysRow: {
-    flexGrow: 0, paddingHorizontal: 10, paddingVertical: 8,
-    backgroundColor: '#132233', borderBottomWidth: 1, borderBottomColor: '#1e3a4f',
+  feed: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 32 },
+  daySection: { marginTop: 14 },
+  dayHeader: {
+    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+    paddingHorizontal: 4, marginBottom: 8,
   },
-  dayTab: {
-    alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10, marginRight: 6, minWidth: 44,
+  dayHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dayName: { color: '#8a9bb0', fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
+  dayNameToday: { color: '#4fc3f7' },
+  todayBadge: { backgroundColor: '#1565c0', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  todayBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
+  dayMeta: { color: '#5f7488', fontSize: 11, fontWeight: '600' },
+  dayEmpty: {
+    backgroundColor: '#0f2030', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: '#17293a',
   },
-  dayTabActive: { backgroundColor: '#1565c0' },
-  dayTabText: { color: '#8a9bb0', fontSize: 14, fontWeight: '600' },
-  dayTabTextActive: { color: '#fff' },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#4fc3f7', marginTop: 3 },
-  dotActive: { backgroundColor: '#fff' },
-  dayDate: {
-    color: '#4fc3f7', fontSize: 13, fontWeight: '600',
-    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 2,
-  },
-  lessonsList: { padding: 14, paddingBottom: 32 },
+  dayEmptyText: { color: '#5f7488', fontSize: 12 },
   lessonCardCurrent: { borderLeftColor: '#4fc3f7', borderWidth: 1, borderColor: '#1e4d67' },
   lessonCard: {
     backgroundColor: '#132233', borderRadius: 12, padding: 14,
@@ -359,10 +369,9 @@ const styles = StyleSheet.create({
   lessonTeacher: { color: '#8a9bb0', fontSize: 12 },
   typeTag: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   typeText: { fontSize: 11, fontWeight: '700' },
-  emptyDay: { alignItems: 'center', paddingTop: 60 },
-  emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyText: { color: '#e8f4fd', fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  emptySubText: { color: '#8a9bb0', fontSize: 14 },
+  emptyWeek: { alignItems: 'center', paddingTop: 60 },
+  emptyText: { color: '#e8f4fd', fontSize: 17, fontWeight: '700', marginBottom: 6 },
+  emptySubText: { color: '#8a9bb0', fontSize: 13 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#8a9bb0', marginTop: 12 },
   hintEmoji: { fontSize: 40, marginBottom: 12 },
