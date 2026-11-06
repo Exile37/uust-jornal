@@ -29,19 +29,19 @@ function markColors(value, isAverage) {
   const grade = String(value || '').trim().toLowerCase().replace('ё', 'е');
   if (isAverage) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
   if (!grade) return { bg: '#0f1f2e', fg: '#5c7186', border: '#1e3a4f' };
-  if (grade === '2' || grade.includes('не зач') || grade === 'н/я' || grade === 'неявка') {
+  if (grade === '2' || grade === 'неудовлетворительно' || grade === 'неуд.' || grade.includes('не зач') || grade === 'н/я' || grade === 'неявка') {
     return { bg: '#3a1a1d', fg: '#ef5350', border: '#54252b' };
   }
-  if (grade === '5' || grade === '4') return { bg: '#1b3324', fg: '#66bb6a', border: '#285034' };
-  if (grade === '3') return { bg: '#3a2a12', fg: '#ffb74d', border: '#5a411c' };
+  if (grade === '5' || grade === '4' || grade === 'отлично' || grade === 'хорошо') return { bg: '#1b3324', fg: '#66bb6a', border: '#285034' };
+  if (grade === '3' || grade === 'удовлетворительно') return { bg: '#3a2a12', fg: '#ffb74d', border: '#5a411c' };
   if (grade.includes('зач')) return { bg: '#102a3d', fg: '#4fc3f7', border: '#1b4059' };
   return { bg: '#132233', fg: '#c8ddf0', border: '#1e3a4f' };
 }
 
 function semesterStats(disciplines) {
   const numbers = disciplines
-    .map((item) => parseFloat(String(item.average || item.grade || '').replace(',', '.')))
-    .filter((number) => number >= 2 && number <= 5);
+    .map((item) => item.numericGrade ?? parseFloat(String(item.average || item.grade || '').replace(',', '.')))
+    .filter((number) => Number.isFinite(number) && number >= 2 && number <= 5);
   return {
     count: disciplines.length,
     average: numbers.length ? numbers.reduce((sum, number) => sum + number, 0) / numbers.length : null,
@@ -157,16 +157,16 @@ export default function RecordBookScreen({ onLogout }) {
 
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{summary.average != null ? summary.average : '—'}</Text>
-            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text>
+            <Text style={styles.statValue}>{summary.average != null ? Number(summary.average).toFixed(2).replace('.', ',') : '—'}</Text>
+            <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ{summary.averageSource === 'calculated' ? ' · РАСЧЁТ' : ''}</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{summary.total ?? semesters.reduce((sum, item) => sum + item.disciplines.length, 0)}</Text>
             <Text style={styles.statLabel}>ДИСЦИПЛИН</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={[styles.statValue, summary.debts > 0 && styles.statValueDanger]}>{summary.debts ?? 0}</Text>
-            <Text style={styles.statLabel}>ДОЛГОВ</Text>
+            <Text style={styles.statValue}>{summary.rating != null ? Number(summary.rating).toLocaleString('ru-RU') : '—'}</Text>
+            <Text style={styles.statLabel}>РЕЙТИНГ</Text>
           </View>
         </View>
 
@@ -189,7 +189,7 @@ export default function RecordBookScreen({ onLogout }) {
                 <Text style={styles.semTitle}>{semester.title}</Text>
                 <Text style={styles.semMeta}>
                   {stats.count} {plural(stats.count, 'дисциплина', 'дисциплины', 'дисциплин')}
-                  {stats.average != null ? ` · ${stats.average.toFixed(2)}` : ''}
+                  {stats.average != null ? ` · ср. по оценкам ${stats.average.toFixed(2)}` : ''}
                 </Text>
               </View>
               <View style={styles.semBody}>
@@ -205,7 +205,7 @@ export default function RecordBookScreen({ onLogout }) {
           );
         })}
 
-        <Text style={styles.footer}>Источник: личный кабинет account.str.uust.ru</Text>
+        <Text style={styles.footer}>Официальная выписка · account.str.uust.ru</Text>
       </ScrollView>
     </View>
   );

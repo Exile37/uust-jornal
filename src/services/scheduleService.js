@@ -2,13 +2,14 @@
 // SCHEDULE SERVICE — с офлайн кэшем
 // =========================
 import { saveCache, loadCache, cacheKey } from './cacheService';
+import { fetchWithTimeout } from './http';
 
 const PROXY_URL = 'https://uust-proxy.onrender.com';
 
 export async function fetchGroups() {
   const key = cacheKey('groups');
   try {
-    const resp = await fetch(`${PROXY_URL}/api/schedule/groups?faculty=26`);
+    const resp = await fetchWithTimeout(`${PROXY_URL}/api/schedule/groups?faculty=26`);
     const text = await resp.text();
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Ошибка сервера'); }
@@ -24,7 +25,7 @@ export async function fetchGroups() {
 
 export async function fetchWeekHeader(groupId, week) {
   try {
-    const resp = await fetch(`${PROXY_URL}/api/schedule/week_header?id=${groupId}&week=${week}`);
+    const resp = await fetchWithTimeout(`${PROXY_URL}/api/schedule/week_header?id=${groupId}&week=${week}`);
     const data = await resp.json();
     return data.header || '';
   } catch (e) {
@@ -35,7 +36,7 @@ export async function fetchWeekHeader(groupId, week) {
 export async function fetchSchedule(groupId, week = 0) {
   const key = cacheKey('schedule', `${groupId}_${week}`);
   try {
-    const resp = await fetch(`${PROXY_URL}/api/schedule/timetable?id=${groupId}&week=${week}`);
+    const resp = await fetchWithTimeout(`${PROXY_URL}/api/schedule/timetable?id=${groupId}&week=${week}`);
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     await saveCache(key, data.days);

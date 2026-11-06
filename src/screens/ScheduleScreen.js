@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   ActivityIndicator, TextInput, FlatList, Modal, Alert,
@@ -66,25 +66,23 @@ export default function ScheduleScreen() {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
+  const scheduleRequestId = useRef(0);
 
   useEffect(() => {
     loadGroups();
     const d = new Date().getDay();
     setSelectedDay(d === 0 ? 0 : Math.min(d - 1, 5));
-  }, []);
-
-  useEffect(() => {
-    if (groups.length === 0) return;
-    AsyncStorage.getItem('savedGroupId').then(id => {
-      if (id) {
-        const g = groups.find(gr => gr.id === id);
-        if (g) {
-          setSelectedGroup(g);
-          loadSchedule(g.id, 0);
-        }
-      }
+    // The saved group ID is enough to request the timetable; don't make the
+    // student wait for the (separate) group directory first.
+    Promise.all([
+      AsyncStorage.getItem('savedGroupId'),
+      AsyncStorage.getItem('savedGroupName'),
+    ]).then(([id, name]) => {
+      if (!id || scheduleRequestId.current > 0) return;
+      setSelectedGroup({ id, name: name || 'Моя группа' });
+      loadSchedule(id, 0);
     });
-  }, [groups]);
+  }, []);
 
   async function loadGroups() {
     setLoadingGroups(true);
@@ -92,6 +90,9 @@ export default function ScheduleScreen() {
       const data = await fetchGroups();
       setGroups(data);
       setFilteredGroups(data);
+      const savedId = await AsyncStorage.getItem('savedGroupId');
+      const saved = data.find(group => group.id === savedId);
+      if (saved) setSelectedGroup(saved);
     } catch (e) {
       Alert.alert('Ошибка', 'Не удалось загрузить список групп');
     } finally {
@@ -100,21 +101,24 @@ export default function ScheduleScreen() {
   }
 
   async function loadSchedule(groupId, w) {
+    const requestId = ++scheduleRequestId.current;
     setLoading(true);
+    setWeek(w);
+    setWeekHeader('');
     try {
-      const [schedResult, header] = await Promise.all([
-        fetchSchedule(groupId, w),
-        fetchWeekHeader(groupId, w),
-      ]);
+      const schedResult = await fetchSchedule(groupId, w);
+      if (requestId !== scheduleRequestId.current) return;
       setSchedule(schedResult.data);
       setFromCache(schedResult.fromCache || false);
-      setCacheAge(schedResult.cacheAge || null);
-      setWeekHeader(header);
-      setWeek(w);
+      setCacheAge(schedResult.cacheAge ?? null);
+      // The header is decorative; load it after showing the actual timetable.
+      fetchWeekHeader(groupId, w).then(header => {
+        if (requestId === scheduleRequestId.current) setWeekHeader(header);
+      });
     } catch (e) {
-      Alert.alert('Ошибка', e.message);
+      if (requestId === scheduleRequestId.current) Alert.alert('Ошибка', e.message);
     } finally {
-      setLoading(false);
+      if (requestId === scheduleRequestId.current) setLoading(false);
     }
   }
 

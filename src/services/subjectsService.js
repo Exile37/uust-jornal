@@ -2,6 +2,7 @@
 // SUBJECTS & GRADES SERVICE — с офлайн кэшем
 // =========================
 import { saveCache, loadCache, cacheKey } from './cacheService';
+import { fetchWithTimeout } from './http';
 
 const PROXY_URL = 'https://uust-proxy.onrender.com';
 
@@ -10,7 +11,7 @@ export async function fetchSubjects() {
 
   // Пробуем загрузить свежие данные
   try {
-    const resp = await fetch(`${PROXY_URL}/api/subjects`);
+    const resp = await fetchWithTimeout(`${PROXY_URL}/api/subjects`);
     if (resp.status === 401) throw new Error('auth');
     const text = await resp.text();
     let data;
@@ -37,7 +38,7 @@ export async function fetchGrades(subjectUrl) {
   const key = cacheKey('grades', subjectUrl.replace(/\//g, '_'));
 
   try {
-    const resp = await fetch(
+    const resp = await fetchWithTimeout(
       `${PROXY_URL}/api/grades?url=${encodeURIComponent(subjectUrl)}`
     );
     if (resp.status === 401) throw new Error('auth');

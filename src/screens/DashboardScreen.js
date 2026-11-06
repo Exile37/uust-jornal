@@ -42,7 +42,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
   const [subjects, setSubjects] = useState([]);
   const [schedule, setSchedule] = useState(null);
   const [avg, setAvg] = useState(null);
-  const [gradeCount, setGradeCount] = useState(0);
+  const [gradeCount, setGradeCount] = useState(null);
   const [groupName, setGroupName] = useState('');
   const [fromCache, setFromCache] = useState(false);
   const [cacheAge, setCacheAge] = useState(null);
@@ -50,50 +50,55 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    try {
-      const [subjectsResult, group, groupNameValue] = await Promise.all([
-        fetchSubjects(),
-        AsyncStorage.getItem('savedGroupId'),
-        AsyncStorage.getItem('savedGroupName'),
-      ]);
-      setSubjects(subjectsResult.data || []);
-      setGroupName(groupNameValue || 'Группа не выбрана');
-      setFromCache(Boolean(subjectsResult.fromCache));
-      setCacheAge(subjectsResult.cacheAge ?? null);
+    const [group, groupNameValue] = await Promise.all([
+      AsyncStorage.getItem('savedGroupId'),
+      AsyncStorage.getItem('savedGroupName'),
+    ]);
+    setGroupName(groupNameValue || 'Группа не выбрана');
 
-      if (group) {
-        const scheduleResult = await fetchSchedule(group, 0);
-        setSchedule(scheduleResult.data || []);
-        if (scheduleResult.fromCache) {
-          setFromCache(true);
-          setCacheAge(scheduleResult.cacheAge ?? cacheAge);
-        }
-      }
+    // Fetch the day and subjects together. Do not hold the whole home screen
+    // behind up to 12 separate grade-page requests; fill statistics afterwards.
+    const scheduleTask = group
+      ? fetchSchedule(group, 0).then((result) => {
+          setSchedule(result.data || []);
+          if (result.fromCache) {
+            setFromCache(true);
+            setCacheAge(result.cacheAge ?? null);
+          }
+        }).catch(() => {}).finally(() => setLoading(false))
+      : Promise.resolve().finally(() => setLoading(false));
 
-      const results = await Promise.allSettled((subjectsResult.data || []).slice(0, 12).map(s => fetchGrades(s.url)));
+    const subjectsTask = fetchSubjects().then(async (subjectsResult) => {
+      const subjectList = subjectsResult.data || [];
+      setSubjects(subjectList);
+      setFromCache((current) => current || Boolean(subjectsResult.fromCache));
+      if (subjectsResult.fromCache) setCacheAge(subjectsResult.cacheAge ?? null);
+
+      const results = await Promise.allSettled(subjectList.slice(0, 12).map((subject) => fetchGrades(subject.url)));
       let sum = 0;
       let count = 0;
-      results.forEach(r => {
-        if (r.status !== 'fulfilled') return;
-        (r.value.data || []).forEach(l => {
-          const n = parseInt(l.grade, 10);
-          if (n >= 2 && n <= 5) { sum += n; count += 1; }
+      results.forEach((result) => {
+        if (result.status !== 'fulfilled') return;
+        (result.value.data || []).forEach((lesson) => {
+          const number = parseInt(lesson.grade, 10);
+          if (number >= 2 && number <= 5) { sum += number; count += 1; }
         });
       });
       setGradeCount(count);
       setAvg(count ? (sum / count).toFixed(2) : null);
-    } catch (e) {
-      // Отдельные блоки экрана могут работать даже если сеть недоступна.
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    }).catch(() => {});
+
+    await Promise.allSettled([scheduleTask, subjectsTask]);
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const next = getNextLesson(schedule);
-  const todayLessons = schedule?.[Math.min(Math.max(new Date().getDay() - 1, 0), 5)]?.lessons || [];
+  const todayLessons = schedule
+    ? (schedule[Math.min(Math.max(new Date().getDay() - 1, 0), 5)]?.lessons || [])
+    : null;
 
   if (loading) {
     return <View style={styles.center}><ActivityIndicator size="large" color="#4fc3f7" /><Text style={styles.loading}>Собираем ваш день...</Text></View>;
@@ -126,7 +131,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
                 {next.lesson.room ? <Text style={styles.heroRoom}>Каб. {next.lesson.room}</Text> : null}
               </View>
             </>
-          ) : <Text style={styles.heroTitle}>На ближайшие дни занятий нет</Text>}
+          ) : <Text style={styles.heroTitle}>{schedule ? 'На ближайшие дни занятий нет' : (groupName === 'Группа не выбрана' ? 'Выберите группу в расписании' : 'Расписание пока не загрузилось')}</Text>}
         </TouchableOpacity>
 
         <View style={styles.statsRow}>
@@ -135,7 +140,7 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
             <Text style={styles.statLabel}>СРЕДНИЙ БАЛЛ</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
-            <Text style={styles.statValue}>{gradeCount}</Text>
+            <Text style={styles.statValue}>{gradeCount == null ? '—' : gradeCount}</Text>
             <Text style={styles.statLabel}>ОЦЕНОК</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.statCard} onPress={onOpenGrades}>
@@ -154,7 +159,9 @@ export default function DashboardScreen({ onOpenGrades, onOpenRecordBook, onOpen
         </TouchableOpacity>
 
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Сегодня</Text><TouchableOpacity onPress={onOpenSchedule}><Text style={styles.more}>Все →</Text></TouchableOpacity></View>
-        {todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
+        {todayLessons === null ? (
+          <TouchableOpacity style={styles.empty} onPress={onOpenSchedule}><Text style={styles.emptyTitle}>День пока не загружен</Text><Text style={styles.emptyText}>Откройте расписание и попробуйте обновить.</Text></TouchableOpacity>
+        ) : todayLessons.length ? todayLessons.slice(0, 4).map((lesson, i) => (
           <TouchableOpacity key={`${lesson.time}-${i}`} style={styles.lessonRow} onPress={onOpenSchedule}>
             <View style={styles.timeCol}><Text style={styles.lessonTime}>{lesson.time || '—'}</Text><Text style={styles.lessonNum}>Пара {lesson.num || i + 1}</Text></View>
             <View style={styles.lessonInfo}><Text style={styles.lessonName} numberOfLines={1}>{lesson.subject || 'Занятие'}</Text><Text style={styles.lessonMeta}>{lesson.room ? `Каб. ${lesson.room}` : 'Аудитория не указана'}{lesson.teacher ? ` · ${lesson.teacher}` : ''}</Text></View>

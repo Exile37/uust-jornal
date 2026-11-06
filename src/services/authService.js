@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { fetchWithTimeout, readJson } from './http';
 
 export const PROXY_URL = 'https://uust-proxy.onrender.com';
 
@@ -46,29 +47,52 @@ export async function hasBiometricCredentials() {
 // =========================
 // ЛОГИН
 // =========================
+const LOGIN_TIMEOUT = 45000;
+
+function normalizeGroup(value) {
+  return String(value || '').replace(/^К-/i, '').trim().toLowerCase();
+}
+
+// Подбор группы для расписания не должен задерживать вход: если прокси
+// просыпается или недоступен, экран входа просто не дождётся ответа.
+async function resolveGroupInBackground(groupName) {
+  try {
+    const cleanName = String(groupName).replace(/^К-/i, '').trim();
+    const [savedGroupId, savedGroupName] = await Promise.all([
+      AsyncStorage.getItem('savedGroupId'),
+      AsyncStorage.getItem('savedGroupName'),
+    ]);
+    if (savedGroupId && normalizeGroup(savedGroupName) === normalizeGroup(groupName)) return;
+
+    const groupsResp = await fetchWithTimeout(`${PROXY_URL}/api/schedule/groups?faculty=26`, {}, 20000);
+    const groupsData = await readJson(groupsResp, 'Список групп недоступен');
+    const groups = groupsData.groups || [];
+    const found = groups.find(g =>
+      String(g.name || '').toLowerCase() === cleanName.toLowerCase() ||
+      String(g.name || '').toLowerCase() === String(groupName).toLowerCase()
+    );
+    if (found) {
+      await AsyncStorage.setItem('savedGroupId', found.id);
+      await AsyncStorage.setItem('savedGroupName', found.name);
+    } else {
+      await AsyncStorage.removeItem('savedGroupId');
+      await AsyncStorage.setItem('savedGroupName', groupName);
+    }
+  } catch (e) {}
+}
+
 export async function login(username, password) {
-  const resp = await fetch(`${PROXY_URL}/api/login`, {
+  const resp = await fetchWithTimeout(`${PROXY_URL}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
-  });
-  const data = await resp.json();
+  }, LOGIN_TIMEOUT);
+  const data = await readJson(resp, 'Сервер не отвечает. Попробуйте позже.');
 
-  if (data.success && data.group_name) {
-    try {
-      const cleanName = data.group_name.replace(/^К-/i, '').trim();
-      const groupsResp = await fetch(`${PROXY_URL}/api/schedule/groups?faculty=26`);
-      const groupsData = await groupsResp.json();
-      const groups = groupsData.groups || [];
-      const found = groups.find(g =>
-        g.name.toLowerCase() === cleanName.toLowerCase() ||
-        g.name.toLowerCase() === data.group_name.toLowerCase()
-      );
-      if (found) {
-        await AsyncStorage.setItem('savedGroupId', found.id);
-        await AsyncStorage.setItem('savedGroupName', found.name);
-      }
-    } catch (e) {}
+  if (data.success) {
+    // Never offer another login's cached official statement while offline.
+    await AsyncStorage.removeItem('uust:recordbook').catch(() => {});
+    if (data.group_name) resolveGroupInBackground(data.group_name);
   }
 
   return data;
