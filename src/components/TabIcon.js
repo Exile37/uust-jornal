@@ -43,21 +43,46 @@ function Box({ x, y, w, h, color, r = 2, thickness = 1.5 }) {
   );
 }
 
-// Главная — домик.
+// Главная — домик: один скат, повторённый с отражением. Так оба ската
+// абсолютно одинаковые, а пик и стык со стенами сходятся в заданных точках.
 function Home({ color, size }) {
   const k = size / 22;
   const t = 1.5;
-  const mid = size / 2;
-  const roof = Math.hypot(mid, 6 * k) * 2 + t;
-  const angle = (Math.atan2(6 * k, mid) * 180) / Math.PI;
+  const left = 3.5 * k;
+  const right = size - 3.5 * k;
+  const apex = { x: size / 2, y: 3 * k };
+  const eaveY = 9.5 * k;
+  const run = right - apex.x;
+  const rise = eaveY - apex.y;
+  // Линия короче гипотенузы ровно на толщину: после поворота её концы
+  // ложатся пиком и стрехой без выступов за контур.
+  const length = Math.hypot(run, rise) - t;
+  const angle = (Math.atan2(rise, run) * 180) / Math.PI;
+  const midX = (apex.x + right) / 2;
+  const midY = (apex.y + eaveY) / 2;
+  const offset = (length - t) / 2;
   return (
     <>
-      <Line x={mid - roof / 2} y={10.75 * k} w={roof} h={t} color={color} style={{ transform: [{ rotate: `${-angle}deg` }] }} />
-      <Line x={mid - roof / 2} y={10.75 * k} w={roof} h={t} color={color} style={{ transform: [{ rotate: `${angle}deg` }] }} />
-      <Line x={4.5 * k} y={11 * k} w={t} h={9 * k} color={color} />
-      <Line x={size - 4.5 * k - t} y={11 * k} w={t} h={9 * k} color={color} />
-      <Line x={4.5 * k} y={20 * k - t} w={13 * k} h={t} color={color} />
-      <Box x={mid - 1.75 * k} y={14.5 * k} w={3.5 * k} h={5.5 * k} color={color} r={1} />
+      <Line
+        x={midX - offset}
+        y={midY - t / 2}
+        w={length}
+        h={t}
+        color={color}
+        style={{ transform: [{ rotate: `${angle}deg` }] }}
+      />
+      <Line
+        x={size - midX - offset}
+        y={midY - t / 2}
+        w={length}
+        h={t}
+        color={color}
+        style={{ transform: [{ rotate: `${-angle}deg` }] }}
+      />
+      <Line x={left} y={eaveY} w={t} h={18 * k - eaveY + t} color={color} />
+      <Line x={right - t} y={eaveY} w={t} h={18 * k - eaveY + t} color={color} />
+      <Line x={left} y={18 * k} w={right - left} h={t} color={color} />
+      <Box x={size / 2 - 2 * k} y={12.5 * k} w={4 * k} h={5.5 * k} color={color} r={1} />
     </>
   );
 }
