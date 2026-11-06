@@ -145,7 +145,7 @@ export default function SettingsScreen({ onLogout, onOpenSchedule }) {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.version}>УУСТР Журнал · 1.4.0</Text>
+      <Text style={styles.version}>УУСТР Журнал · 1.4.1</Text>
     </ScrollView>
   );
 }

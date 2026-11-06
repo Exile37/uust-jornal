@@ -2,7 +2,7 @@
   "expo": {
     "name": "uust-app",
     "slug": "uust-app",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#131211",
@@ -11,11 +11,11 @@
       "supportsTablet": true,
       "jsEngine": "hermes",
       "bundleIdentifier": "com.exile37.uustjournal",
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.exile37.uustjournal",
-      "versionCode": 2,
+      "versionCode": 3,
       "jsEngine": "hermes"
     },
     "plugins": [
